@@ -186,3 +186,17 @@ def init_from_config():
             "Database schema is incomplete. Some features may not work correctly. "
             "Run 'kosmos doctor' for details."
         )
+
+
+def reset_database():
+    """Drop all tables and recreate them (for evaluation isolation).
+
+    WARNING: Destroys all data. Only use for testing/evaluation.
+    """
+    global _engine, _SessionLocal
+    if _engine is None:
+        logger.warning("reset_database() called but no engine initialized")
+        return
+    Base.metadata.drop_all(bind=_engine)
+    Base.metadata.create_all(bind=_engine)
+    logger.info("Database reset: all tables dropped and recreated")

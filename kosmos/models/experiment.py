@@ -98,6 +98,19 @@ class ControlGroup(BaseModel):
 
     sample_size: Optional[int] = Field(None, ge=1, description="Required sample size")
 
+    @field_validator('sample_size', mode='before')
+    @classmethod
+    def coerce_sample_size(cls, v):
+        """Coerce string sample_size from LLM output to int."""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except (ValueError, TypeError):
+                return None
+        return v
+
     @field_validator('description', 'rationale')
     @classmethod
     def validate_text_fields(cls, v: str) -> str:
@@ -146,6 +159,14 @@ class ProtocolStep(BaseModel):
     # Code generation hints (for Phase 5)
     code_template: Optional[str] = None
     library_imports: List[str] = Field(default_factory=list)
+
+    @field_validator('title', mode='before')
+    @classmethod
+    def ensure_title(cls, v):
+        """Provide default title when LLM returns empty string."""
+        if not v or (isinstance(v, str) and len(v.strip()) < 3):
+            return "Untitled Step"
+        return v
 
     @field_validator('title', 'description', 'action')
     @classmethod
@@ -227,6 +248,16 @@ class StatisticalTestSpec(BaseModel):
 
     # Groups/conditions
     groups: Optional[List[str]] = None
+
+    @field_validator('groups', mode='before')
+    @classmethod
+    def coerce_groups(cls, v):
+        """Coerce comma-separated string groups from LLM output to list."""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            return [g.strip() for g in v.split(',') if g.strip()]
+        return v
 
     # Multiple testing correction
     correction_method: Optional[str] = None  # "bonferroni", "fdr", etc.

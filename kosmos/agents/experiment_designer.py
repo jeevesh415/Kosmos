@@ -527,7 +527,7 @@ class ExperimentDesignerAgent(BaseAgent):
         for step_data in data.get("steps", []):
             steps.append(ProtocolStep(
                 step_number=step_data.get("step_number", len(steps) + 1),
-                title=step_data.get("title", ""),
+                title=step_data.get("title", "") or "Untitled Step",
                 description=step_data.get("description", ""),
                 action=step_data.get("action", ""),
                 expected_duration_minutes=step_data.get("expected_duration_minutes"),

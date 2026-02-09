@@ -180,6 +180,16 @@ def run_tier1(persona_name: str, persona: dict, run_dir: Path, dry_run: bool = F
         print(f"  [DRY RUN] Output would go to: {run_dir / 'tier1'}")
         return True
 
+    # Clean persistent state for honest evaluation
+    db_path = PROJECT_ROOT / "kosmos.db"
+    cache_path = PROJECT_ROOT / ".kosmos_cache"
+    if db_path.exists():
+        db_path.unlink()
+        print("  Cleared previous database for clean evaluation")
+    if cache_path.exists():
+        shutil.rmtree(cache_path)
+        print("  Cleared previous caches for clean evaluation")
+
     # Execute
     print("  Running Tier 1 evaluation...")
     print("  " + "=" * 60)

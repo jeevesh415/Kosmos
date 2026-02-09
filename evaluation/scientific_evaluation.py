@@ -9,7 +9,7 @@ Phases:
   1. Pre-flight checks (config, LLM connectivity, DB, type compatibility)
   2. Single-iteration E2E smoke test
   3. Multi-iteration full loop (3 iterations)
-  4. Dataset input test (enzyme_kinetics_test.csv)
+  4. Dataset input test (default: enzyme_kinetics_test.csv)
   5. Output quality assessment
   6. Scientific rigor scorecard
   7. Paper compliance gap analysis
@@ -49,6 +49,36 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("scientific_evaluation")
+
+
+def _reset_eval_state():
+    """Reset all global state for phase isolation."""
+    from kosmos.db import reset_database, init_from_config
+    try:
+        reset_database()
+    except Exception:
+        init_from_config()
+
+    from kosmos.core.cache_manager import get_cache_manager, reset_cache_manager
+    try:
+        get_cache_manager().clear()
+    except Exception:
+        pass
+    reset_cache_manager()
+
+    from kosmos.core.claude_cache import reset_claude_cache
+    reset_claude_cache()
+
+    from kosmos.agents.registry import get_registry
+    try:
+        get_registry().clear()
+    except Exception:
+        pass
+
+    from kosmos.world_model import reset_world_model
+    reset_world_model()
+
+    logger.info("[ISOLATION] Evaluation state reset for clean phase")
 
 
 # ============================================================================
@@ -225,10 +255,11 @@ def run_phase1_preflight() -> PhaseResult:
 # Phase 2: Single-Iteration E2E Smoke Test
 # ============================================================================
 
-async def run_phase2_smoke_test() -> PhaseResult:
+async def run_phase2_smoke_test(research_question: str = None, domain: str = None) -> PhaseResult:
     """Run one research iteration and capture results."""
     result = PhaseResult(phase=2, name="Single-Iteration E2E Smoke Test", status="PASS")
     start = time.time()
+    _reset_eval_state()
 
     try:
         from kosmos.agents.research_director import ResearchDirectorAgent
@@ -240,9 +271,10 @@ async def run_phase2_smoke_test() -> PhaseResult:
         # Build flat config for the director
         flat_config = {
             "max_iterations": 1,
-            "enabled_domains": ["biology"],
+            "enabled_domains": [domain or "biology"],
             "enabled_experiment_types": ["computational", "data_analysis"],
             "min_novelty_score": 0.3,
+            "require_novelty_check": True,
             "enable_autonomous_iteration": True,
             "budget_usd": 5.0,
             "enable_concurrent_operations": False,
@@ -256,8 +288,8 @@ async def run_phase2_smoke_test() -> PhaseResult:
 
         logger.info("Phase 2: Creating ResearchDirector...")
         director = ResearchDirectorAgent(
-            research_question="How does temperature affect enzyme catalytic rates?",
-            domain="biology",
+            research_question=research_question or "How does temperature affect enzyme catalytic rates?",
+            domain=domain or "biology",
             config=flat_config,
         )
         result.add_check("director_created", True)
@@ -383,10 +415,11 @@ async def run_phase2_smoke_test() -> PhaseResult:
 # Phase 3: Multi-Iteration Full Loop (3 iterations)
 # ============================================================================
 
-async def run_phase3_multi_iteration() -> PhaseResult:
-    """Run 3 full iterations testing complete cycle."""
+async def run_phase3_multi_iteration(research_question: str = None, domain: str = None, max_iterations: int = None) -> PhaseResult:
+    """Run full iterations testing complete cycle."""
     result = PhaseResult(phase=3, name="Multi-Iteration Full Loop (3 iter)", status="PASS")
     start = time.time()
+    _reset_eval_state()
 
     try:
         from kosmos.agents.research_director import ResearchDirectorAgent
@@ -396,10 +429,11 @@ async def run_phase3_multi_iteration() -> PhaseResult:
         config = get_config()
 
         flat_config = {
-            "max_iterations": 3,
-            "enabled_domains": ["biology"],
+            "max_iterations": max_iterations or 3,
+            "enabled_domains": [domain or "biology"],
             "enabled_experiment_types": ["computational", "data_analysis"],
             "min_novelty_score": 0.3,
+            "require_novelty_check": True,
             "enable_autonomous_iteration": True,
             "budget_usd": 10.0,
             "enable_concurrent_operations": False,
@@ -411,10 +445,10 @@ async def run_phase3_multi_iteration() -> PhaseResult:
             "enable_cache": True,
         }
 
-        logger.info("Phase 3: Creating ResearchDirector for 3 iterations...")
+        logger.info(f"Phase 3: Creating ResearchDirector for {max_iterations or 3} iterations...")
         director = ResearchDirectorAgent(
-            research_question="What is the relationship between substrate concentration and enzyme reaction velocity?",
-            domain="biology",
+            research_question=research_question or "What is the relationship between substrate concentration and enzyme reaction velocity?",
+            domain=domain or "biology",
             config=flat_config,
         )
 
@@ -532,12 +566,16 @@ async def run_phase3_multi_iteration() -> PhaseResult:
 # Phase 4: Dataset Input Test
 # ============================================================================
 
-async def run_phase4_dataset_test() -> PhaseResult:
-    """Test with the enzyme_kinetics_test.csv dataset."""
+async def run_phase4_dataset_test(research_question: str = None, domain: str = None, data_path: Path = None) -> PhaseResult:
+    """Test with a dataset (default: enzyme_kinetics_test.csv)."""
     result = PhaseResult(phase=4, name="Dataset Input Test", status="PASS")
     start = time.time()
+    _reset_eval_state()
 
-    data_path = Path(__file__).parent / "data" / "enzyme_kinetics_test.csv"
+    if data_path is None:
+        data_path = Path(__file__).parent / "data" / "enzyme_kinetics_test.csv"
+    elif not isinstance(data_path, Path):
+        data_path = Path(data_path)
 
     # Check dataset exists
     if not data_path.exists():
@@ -584,9 +622,10 @@ async def run_phase4_dataset_test() -> PhaseResult:
         config = get_config()
         flat_config = {
             "max_iterations": 1,
-            "enabled_domains": ["biology"],
+            "enabled_domains": [domain or "biology"],
             "enabled_experiment_types": ["computational", "data_analysis"],
             "min_novelty_score": 0.3,
+            "require_novelty_check": True,
             "enable_autonomous_iteration": True,
             "budget_usd": 5.0,
             "enable_concurrent_operations": False,
@@ -600,8 +639,8 @@ async def run_phase4_dataset_test() -> PhaseResult:
         }
 
         director = ResearchDirectorAgent(
-            research_question="Analyze the relationship between temperature and enzyme activity",
-            domain="biology",
+            research_question=research_question or "Analyze the relationship between temperature and enzyme activity",
+            domain=domain or "biology",
             config=flat_config,
         )
         result.add_check(
@@ -1299,10 +1338,10 @@ async def main(output_dir: Path = None, research_question: str = None,
     Args:
         output_dir: If provided, write report and copy log to this directory
                     instead of the default location.
-        research_question: Override research question (reserved for future use).
-        domain: Override domain (reserved for future use).
-        data_path: Override dataset path (reserved for future use).
-        max_iterations: Override max iterations (reserved for future use).
+        research_question: Override research question for all phases.
+        domain: Override domain for all phases.
+        data_path: Override dataset path for Phase 4.
+        max_iterations: Override max iterations for Phase 3.
     """
     print("=" * 70)
     print("  KOSMOS AI SCIENTIST — SCIENTIFIC EVALUATION")
@@ -1334,21 +1373,21 @@ async def main(output_dir: Path = None, research_question: str = None,
 
     # Phase 2: Single-iteration smoke test
     print("[Phase 2] Single-Iteration E2E Smoke Test...")
-    p2 = await run_phase2_smoke_test()
+    p2 = await run_phase2_smoke_test(research_question=research_question, domain=domain)
     report.add_phase(p2)
     print(f"  -> {p2.status} ({p2.checks_passed}/{p2.checks_total} checks, {p2.duration_seconds:.1f}s)")
     print()
 
     # Phase 3: Multi-iteration
-    print("[Phase 3] Multi-Iteration Full Loop (3 iterations)...")
-    p3 = await run_phase3_multi_iteration()
+    print("[Phase 3] Multi-Iteration Full Loop...")
+    p3 = await run_phase3_multi_iteration(research_question=research_question, domain=domain, max_iterations=max_iterations)
     report.add_phase(p3)
     print(f"  -> {p3.status} ({p3.checks_passed}/{p3.checks_total} checks, {p3.duration_seconds:.1f}s)")
     print()
 
     # Phase 4: Dataset input
     print("[Phase 4] Dataset Input Test...")
-    p4 = await run_phase4_dataset_test()
+    p4 = await run_phase4_dataset_test(research_question=research_question, domain=domain, data_path=data_path)
     report.add_phase(p4)
     print(f"  -> {p4.status} ({p4.checks_passed}/{p4.checks_total} checks, {p4.duration_seconds:.1f}s)")
     print()
@@ -1415,19 +1454,19 @@ if __name__ == "__main__":
     )
     _parser.add_argument(
         "--research-question", type=str, default=None,
-        help="Override research question (reserved for future use)",
+        help="Override research question for all phases",
     )
     _parser.add_argument(
         "--domain", type=str, default=None,
-        help="Override domain (reserved for future use)",
+        help="Override domain for all phases",
     )
     _parser.add_argument(
         "--data-path", type=Path, default=None,
-        help="Override dataset path (reserved for future use)",
+        help="Override dataset path for Phase 4",
     )
     _parser.add_argument(
         "--max-iterations", type=int, default=None,
-        help="Override max iterations (reserved for future use)",
+        help="Override max iterations for Phase 3",
     )
     _args = _parser.parse_args()
 

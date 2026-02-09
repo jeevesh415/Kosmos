@@ -79,7 +79,7 @@ class HypothesisGeneratorAgent(BaseAgent):
         self.num_hypotheses = self.config.get("num_hypotheses", 3)
         self.use_literature_context = self.config.get("use_literature_context", True)
         self.max_papers_context = self.config.get("max_papers_context", 10)
-        self.require_novelty_check = self.config.get("require_novelty_check", False)
+        self.require_novelty_check = self.config.get("require_novelty_check", True)
         self.min_novelty_score = self.config.get("min_novelty_score", 0.5)
 
         # Components

@@ -1042,6 +1042,28 @@ class KosmosConfig(BaseSettings):
             pass
         return self
 
+    def get_active_model(self) -> str:
+        """Return the model string for the currently active LLM provider."""
+        provider = self.llm_provider
+        if provider == "litellm":
+            return self.litellm.model
+        elif provider == "anthropic":
+            return self.claude.model
+        elif provider == "openai":
+            return self.openai.model
+        raise ValueError(f"Unknown provider: {provider}")
+
+    def get_active_provider_config(self) -> dict:
+        """Return config dict for the currently active LLM provider."""
+        provider = self.llm_provider
+        if provider == "litellm":
+            return {"model": self.litellm.model, "api_key": self.litellm.api_key, "api_base": self.litellm.api_base}
+        elif provider == "anthropic":
+            return {"model": self.claude.model, "api_key": self.claude.api_key}
+        elif provider == "openai":
+            return {"model": self.openai.model, "api_key": self.openai.api_key}
+        raise ValueError(f"Unknown provider: {provider}")
+
     def create_directories(self):
         """Create necessary directories if they don't exist."""
         # Create log directory
