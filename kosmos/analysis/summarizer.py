@@ -6,7 +6,7 @@ Natural language summaries of experiment results using Claude.
 
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from kosmos.core.llm import get_client
 from kosmos.models.result import ExperimentResult
@@ -46,7 +46,7 @@ class ResultSummary:
         self.hypothesis_comparison = hypothesis_comparison
         self.limitations = limitations
         self.future_work = future_work
-        self.created_at = created_at or datetime.utcnow()
+        self.created_at = created_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

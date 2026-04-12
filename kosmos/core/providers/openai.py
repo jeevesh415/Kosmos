@@ -353,8 +353,8 @@ class OpenAIProvider(LLMProvider):
                         "[LLM] OpenAI async: model=%s, in=%d, out=%d, duration=%.2fs",
                         self.model, input_tokens, output_tokens, duration
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"OpenAI call logging failed: {e}")
 
             return LLMResponse(
                 content=content,

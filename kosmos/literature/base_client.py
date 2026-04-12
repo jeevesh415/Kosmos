@@ -21,6 +21,7 @@ class PaperSource(str, Enum):
     PUBMED = "pubmed"
     UNKNOWN = "unknown"
     MANUAL = "manual"
+    OTHER = "other"
 
 
 @dataclass
@@ -230,7 +231,7 @@ class BaseLiteratureClient(ABC):
             f"Error in {self.get_source_name()} API during {operation}: {str(error)}",
             exc_info=True
         )
-        # Could add retry logic, circuit breaker, etc. here
+        raise
 
     def _validate_query(self, query: str) -> bool:
         """
@@ -247,8 +248,8 @@ class BaseLiteratureClient(ABC):
             return False
 
         if len(query) > 1000:
-            self.logger.warning(f"Query too long ({len(query)} chars), truncating to 1000")
-            return True
+            self.logger.warning(f"Query too long ({len(query)} chars), max 1000")
+            return False
 
         return True
 

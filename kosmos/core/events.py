@@ -7,7 +7,7 @@ Events are published via EventBus and consumed by CLI, API endpoints, and logger
 
 import json
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -53,7 +53,7 @@ class EventType(str, Enum):
 
 def _default_timestamp() -> str:
     """Generate ISO timestamp with Z suffix."""
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat() + "Z"
 
 
 @dataclass

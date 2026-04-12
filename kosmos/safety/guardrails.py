@@ -46,7 +46,8 @@ class SafetyGuardrails:
     def __init__(
         self,
         incident_log_path: Optional[str] = None,
-        enable_signal_handlers: bool = True
+        enable_signal_handlers: bool = True,
+        docker_client: Optional[Any] = None
     ):
         """
         Initialize safety guardrails.
@@ -54,7 +55,10 @@ class SafetyGuardrails:
         Args:
             incident_log_path: Path to safety incident log file
             enable_signal_handlers: Register signal handlers for emergency stop
+            docker_client: Optional Docker client for killing sandbox containers
+                          on emergency stop (e.g., docker.from_env())
         """
+        self.docker_client = docker_client
         config = get_config()
 
         # Initialize code validator
@@ -120,7 +124,8 @@ class SafetyGuardrails:
         Returns:
             SafetyReport with validation results
         """
-        # Check for emergency stop
+        # Check for emergency stop (sync from flag file first)
+        self.sync_from_flag_file()
         if self.is_emergency_stop_active():
             raise RuntimeError(
                 f"Emergency stop active: {self.emergency_stop.reason}"
@@ -199,14 +204,24 @@ class SafetyGuardrails:
             )
 
     def is_emergency_stop_active(self) -> bool:
-        """Check if emergency stop is currently active."""
-        # Update from flag file if exists
+        """Check if emergency stop is currently active (read-only, no side effects)."""
+        return self.emergency_stop.is_active
+
+    def sync_from_flag_file(self) -> bool:
+        """Check flag file and trigger emergency stop if it exists.
+
+        Call this explicitly when you want to update state from the flag file.
+        Separated from is_emergency_stop_active() to avoid a status check
+        unexpectedly mutating state.
+
+        Returns:
+            True if emergency stop is now active.
+        """
         if self.STOP_FLAG_FILE.exists() and not self.emergency_stop.is_active:
             self.trigger_emergency_stop(
                 triggered_by="flag_file",
                 reason="Emergency stop flag file detected"
             )
-
         return self.emergency_stop.is_active
 
     def trigger_emergency_stop(
@@ -245,6 +260,30 @@ class SafetyGuardrails:
                 )
             except Exception as e:
                 logger.error(f"Could not create stop flag file: {e}")
+
+        # Kill sandbox Docker containers if docker_client is available
+        if self.docker_client:
+            try:
+                containers = self.docker_client.containers.list(
+                    filters={'label': 'kosmos.sandbox=true'}
+                )
+                for container in containers:
+                    try:
+                        container.kill()
+                        logger.info(
+                            f"Killed sandbox container {container.short_id} "
+                            f"during emergency stop"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to kill container {container.short_id}: {e}"
+                        )
+                if containers:
+                    logger.info(
+                        f"Emergency stop killed {len(containers)} sandbox container(s)"
+                    )
+            except Exception as e:
+                logger.error(f"Error listing sandbox containers during emergency stop: {e}")
 
         # Log as critical incident
         incident = SafetyIncident(
@@ -303,6 +342,7 @@ class SafetyGuardrails:
             yield
         except Exception as e:
             # Check if exception is due to emergency stop
+            self.sync_from_flag_file()
             if self.is_emergency_stop_active():
                 logger.error(f"Execution interrupted by emergency stop: {e}")
                 raise
@@ -310,6 +350,7 @@ class SafetyGuardrails:
             raise
         finally:
             # Check after execution
+            self.sync_from_flag_file()
             if self.is_emergency_stop_active():
                 logger.warning(
                     f"Emergency stop detected after execution "

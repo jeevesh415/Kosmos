@@ -7,6 +7,7 @@ and relationships (CITES, USES_METHOD, DISCUSSES, AUTHORED, RELATED_TO).
 
 import logging
 import subprocess
+import threading
 import time
 from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
@@ -609,11 +610,16 @@ class KnowledgeGraph:
             properties["role"] = role
 
         rel = Relationship(author, "AUTHORED", paper, **properties)
+        created = not merge
+        if merge:
+            existing = self.graph.match((author, paper), r_type="AUTHORED").first()
+            created = existing is None
         self.graph.merge(rel) if merge else self.graph.create(rel)
 
-        # Update author paper count
-        author["paper_count"] = author.get("paper_count", 0) + 1
-        self.graph.push(author)
+        # Only update author paper count when a new relationship is created
+        if created:
+            author["paper_count"] = author.get("paper_count", 0) + 1
+            self.graph.push(author)
 
         return rel
 
@@ -653,11 +659,16 @@ class KnowledgeGraph:
             properties["section"] = section
 
         rel = Relationship(paper, "DISCUSSES", concept, **properties)
+        created = not merge
+        if merge:
+            existing = self.graph.match((paper, concept), r_type="DISCUSSES").first()
+            created = existing is None
         self.graph.merge(rel) if merge else self.graph.create(rel)
 
-        # Update concept frequency
-        concept["frequency"] = concept.get("frequency", 0) + 1
-        self.graph.push(concept)
+        # Only update concept frequency when a new relationship is created
+        if created:
+            concept["frequency"] = concept.get("frequency", 0) + 1
+            self.graph.push(concept)
 
         return rel
 
@@ -697,11 +708,16 @@ class KnowledgeGraph:
             properties["context"] = context
 
         rel = Relationship(paper, "USES_METHOD", method, **properties)
+        created = not merge
+        if merge:
+            existing = self.graph.match((paper, method), r_type="USES_METHOD").first()
+            created = existing is None
         self.graph.merge(rel) if merge else self.graph.create(rel)
 
-        # Update method usage count
-        method["usage_count"] = method.get("usage_count", 0) + 1
-        self.graph.push(method)
+        # Only update method usage count when a new relationship is created
+        if created:
+            method["usage_count"] = method.get("usage_count", 0) + 1
+            self.graph.push(method)
 
         return rel
 
@@ -998,6 +1014,7 @@ class KnowledgeGraph:
 
 # Singleton instance
 _knowledge_graph: Optional[KnowledgeGraph] = None
+_knowledge_graph_lock = threading.Lock()
 
 
 def get_knowledge_graph(
@@ -1022,12 +1039,14 @@ def get_knowledge_graph(
     """
     global _knowledge_graph
     if _knowledge_graph is None or reset:
-        _knowledge_graph = KnowledgeGraph(
-            uri=uri,
-            user=user,
-            password=password,
-            database=database
-        )
+        with _knowledge_graph_lock:
+            if _knowledge_graph is None or reset:
+                _knowledge_graph = KnowledgeGraph(
+                    uri=uri,
+                    user=user,
+                    password=password,
+                    database=database
+                )
     return _knowledge_graph
 
 

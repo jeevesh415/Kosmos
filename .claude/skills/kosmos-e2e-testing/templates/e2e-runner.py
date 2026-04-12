@@ -224,7 +224,7 @@ async def test_scholar_evaluation():
             'interpretation': 'Multiple studies show 4-bit quantization reduces memory by 75%.'
         }
 
-        result = await validator.evaluate_finding(test_finding)
+        result = validator.evaluate_finding(test_finding)
 
         if result and hasattr(result, 'overall_score'):
             print(f"  [OK] Evaluation completed")

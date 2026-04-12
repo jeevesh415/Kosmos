@@ -7,6 +7,7 @@ Supports both sync and async callbacks with optional filtering.
 
 import asyncio
 import logging
+import threading
 from typing import Callable, Dict, List, Optional, Set, Union
 from weakref import WeakSet
 
@@ -52,6 +53,7 @@ class EventBus:
         self._process_filters: Dict[Callback, Optional[Set[str]]] = {}
         self._enabled = True
         self._lock = asyncio.Lock()
+        self._sync_lock = threading.Lock()
 
     def subscribe(
         self,
@@ -80,24 +82,25 @@ class EventBus:
             # Subscribe to events from specific process
             bus.subscribe(my_callback, process_ids=["research_123"])
         """
-        if event_types:
-            for event_type in event_types:
-                if event_type not in self._subscribers:
-                    self._subscribers[event_type] = []
-                if callback not in self._subscribers[event_type]:
-                    self._subscribers[event_type].append(callback)
-        else:
-            # Subscribe to all events
-            if None not in self._subscribers:
-                self._subscribers[None] = []
-            if callback not in self._subscribers[None]:
-                self._subscribers[None].append(callback)
+        with self._sync_lock:
+            if event_types:
+                for event_type in event_types:
+                    if event_type not in self._subscribers:
+                        self._subscribers[event_type] = []
+                    if callback not in self._subscribers[event_type]:
+                        self._subscribers[event_type].append(callback)
+            else:
+                # Subscribe to all events
+                if None not in self._subscribers:
+                    self._subscribers[None] = []
+                if callback not in self._subscribers[None]:
+                    self._subscribers[None].append(callback)
 
-        # Store process filter
-        if process_ids:
-            self._process_filters[callback] = set(process_ids)
-        else:
-            self._process_filters[callback] = None
+            # Store process filter
+            if process_ids:
+                self._process_filters[callback] = set(process_ids)
+            else:
+                self._process_filters[callback] = None
 
     def unsubscribe(self, callback: Callback) -> None:
         """
@@ -106,16 +109,18 @@ class EventBus:
         Args:
             callback: The callback to remove
         """
-        for subscribers in self._subscribers.values():
-            if callback in subscribers:
-                subscribers.remove(callback)
+        with self._sync_lock:
+            for subscribers in self._subscribers.values():
+                if callback in subscribers:
+                    subscribers.remove(callback)
 
-        self._process_filters.pop(callback, None)
+            self._process_filters.pop(callback, None)
 
     def unsubscribe_all(self) -> None:
         """Remove all subscribers."""
-        self._subscribers.clear()
-        self._process_filters.clear()
+        with self._sync_lock:
+            self._subscribers.clear()
+            self._process_filters.clear()
 
     async def publish(self, event: StreamingEvent) -> None:
         """
@@ -130,7 +135,8 @@ class EventBus:
         if not self._enabled:
             return
 
-        callbacks = self._get_callbacks(event)
+        with self._sync_lock:
+            callbacks = self._get_callbacks(event)
 
         for callback in callbacks:
             # Check process filter
@@ -158,7 +164,8 @@ class EventBus:
         if not self._enabled:
             return
 
-        callbacks = self._get_callbacks(event)
+        with self._sync_lock:
+            callbacks = self._get_callbacks(event)
 
         for callback in callbacks:
             # Check process filter

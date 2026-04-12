@@ -28,7 +28,7 @@ Example:
 import logging
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from collections import defaultdict
 
@@ -825,7 +825,7 @@ class EnsembleRunner:
         """
         import time
         start_time = time.time()
-        start_timestamp = datetime.utcnow().isoformat()
+        start_timestamp = datetime.now(timezone.utc).isoformat()
 
         logger.info(
             f"Starting ensemble run: '{research_objective}' "
@@ -856,7 +856,7 @@ class EnsembleRunner:
         non_convergent = [m for m in matched_findings if not m.is_convergent]
 
         end_time = time.time()
-        end_timestamp = datetime.utcnow().isoformat()
+        end_timestamp = datetime.now(timezone.utc).isoformat()
 
         result = EnsembleResult(
             research_objective=research_objective,
@@ -1096,7 +1096,7 @@ class ConvergenceReporter:
         os.makedirs(self.output_dir, exist_ok=True)
 
         if output_path is None:
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             ext = "md" if format == "markdown" else "json"
             output_path = os.path.join(self.output_dir, f"convergence_report_{timestamp}.{ext}")
 

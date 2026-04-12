@@ -9,7 +9,7 @@ Processes results and generates feedback signals to:
 """
 
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
@@ -39,7 +39,7 @@ class FeedbackSignal(BaseModel):
     source: str  # Result ID or analysis ID
     data: Dict[str, Any]
     confidence: float = Field(1.0, ge=0.0, le=1.0)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     applied: bool = False
 
 
@@ -55,8 +55,8 @@ class SuccessPattern(BaseModel):
     success_rate: float = 1.0
     confidence: float = 0.5
     examples: List[str] = Field(default_factory=list)  # Result IDs
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class FailurePattern(BaseModel):
@@ -69,8 +69,8 @@ class FailurePattern(BaseModel):
     recommended_fixes: List[str] = Field(default_factory=list)
     occurrences: int = 1
     examples: List[str] = Field(default_factory=list)  # Result IDs
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class FeedbackLoop:
@@ -171,7 +171,7 @@ class FeedbackLoop:
                     existing_pattern.occurrences
                 )
                 existing_pattern.confidence = min(1.0, existing_pattern.confidence + 0.1)
-                existing_pattern.updated_at = datetime.utcnow()
+                existing_pattern.updated_at = datetime.now(timezone.utc)
 
                 pattern_id = existing_pattern.pattern_id
             else:
@@ -219,7 +219,7 @@ class FeedbackLoop:
                 # Update existing pattern
                 existing_pattern.occurrences += 1
                 existing_pattern.examples.append(result.id)
-                existing_pattern.updated_at = datetime.utcnow()
+                existing_pattern.updated_at = datetime.now(timezone.utc)
 
                 pattern_id = existing_pattern.pattern_id
             else:

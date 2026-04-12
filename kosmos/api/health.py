@@ -7,7 +7,7 @@ Provides liveness, readiness, and metrics endpoints for monitoring.
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import psutil
 import platform
@@ -47,7 +47,7 @@ class HealthChecker:
 
         return {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "uptime_seconds": round(uptime, 2),
             "checks_performed": self.checks_performed,
             "service": "kosmos-ai-scientist",
@@ -99,7 +99,7 @@ class HealthChecker:
 
         return {
             "status": overall_status,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "components": components,
             "service": "kosmos-ai-scientist",
             "version": self._get_version()
@@ -140,7 +140,7 @@ class HealthChecker:
 
         return {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "system": {
                 "platform": platform.system(),
                 "platform_release": platform.release(),
@@ -222,13 +222,20 @@ class HealthChecker:
             Dictionary with cache status
         """
         try:
-            # Check if Redis is enabled
-            redis_enabled = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+            # Use Pydantic config for Redis settings (avoids env var divergence)
+            from kosmos.config import get_config
+            try:
+                config = get_config()
+                redis_enabled = config.redis.enabled
+                redis_url = config.redis.url
+            except Exception:
+                # Fall back to env vars if config is not initialized yet
+                redis_enabled = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
             if redis_enabled:
                 # Try to connect to Redis
                 import redis
-                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
                 start_time = time.time()
                 client = redis.from_url(
@@ -279,8 +286,13 @@ class HealthChecker:
             Dictionary with external API status
         """
         try:
-            # Check if API key is configured
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            # Use Pydantic config for API key (avoids env var divergence)
+            from kosmos.config import get_config
+            try:
+                config = get_config()
+                api_key = config.claude.api_key if config.claude else None
+            except Exception:
+                api_key = os.getenv("ANTHROPIC_API_KEY")
 
             if not api_key:
                 return {
@@ -333,9 +345,17 @@ class HealthChecker:
         try:
             from neo4j import GraphDatabase
 
-            uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-            user = os.getenv("NEO4J_USER", "neo4j")
-            password = os.getenv("NEO4J_PASSWORD")
+            # Use Pydantic config for Neo4j settings (avoids env var divergence)
+            from kosmos.config import get_config
+            try:
+                config = get_config()
+                uri = config.neo4j.uri
+                user = config.neo4j.user
+                password = config.neo4j.password
+            except Exception:
+                uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+                user = os.getenv("NEO4J_USER", "neo4j")
+                password = os.getenv("NEO4J_PASSWORD")
 
             if not password:
                 return {

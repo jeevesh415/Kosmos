@@ -226,10 +226,10 @@ if HAS_FASTAPI:
 
                     if action == "ping":
                         # Respond to ping
-                        from datetime import datetime
+                        from datetime import datetime, timezone
                         await websocket.send_json({
                             "action": "pong",
-                            "timestamp": datetime.utcnow().isoformat() + "Z"
+                            "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
                         })
 
                     elif action == "subscribe":

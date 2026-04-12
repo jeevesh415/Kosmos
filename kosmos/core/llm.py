@@ -18,6 +18,7 @@ import json
 import logging
 
 from kosmos.config import _DEFAULT_CLAUDE_SONNET_MODEL, _DEFAULT_CLAUDE_HAIKU_MODEL
+from kosmos.core.pricing import get_model_cost
 
 try:
     from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
@@ -514,9 +515,11 @@ class ClaudeClient:
 
             # Estimate cost savings (API mode only)
             if not self.is_cli_mode:
-                input_saved = (avg_input_tokens * self.cache_hits / 1_000_000) * 3.0
-                output_saved = (avg_output_tokens * self.cache_hits / 1_000_000) * 15.0
-                cost_saved = input_saved + output_saved
+                cost_saved = get_model_cost(
+                    "claude-sonnet-4-5",
+                    int(avg_input_tokens * self.cache_hits),
+                    int(avg_output_tokens * self.cache_hits)
+                )
             else:
                 cost_saved = 0.0  # CLI mode has no per-token cost
         else:
@@ -552,7 +555,7 @@ class ClaudeClient:
             }
 
             # Estimate cost savings from using Haiku
-            # Haiku is ~5x cheaper: Sonnet $3/$15, Haiku ~$0.60/$3 per M tokens
+            # Haiku is cheaper than Sonnet (see kosmos.core.pricing)
             # Simplified: assume each Haiku request saved ~80% of cost
             if self.haiku_requests > 0 and not self.is_cli_mode:
                 avg_tokens_per_request = (
@@ -584,13 +587,11 @@ class ClaudeClient:
         if self.is_cli_mode:
             return 0.0  # CLI mode has no per-token cost
 
-        # Pricing for Claude 3.5 Sonnet (as of Nov 2025)
-        # Input: $3 per million tokens
-        # Output: $15 per million tokens
-        input_cost = (self.total_input_tokens / 1_000_000) * 3.0
-        output_cost = (self.total_output_tokens / 1_000_000) * 15.0
-
-        return input_cost + output_cost
+        return get_model_cost(
+            "claude-sonnet-4-5",
+            self.total_input_tokens,
+            self.total_output_tokens
+        )
 
     def reset_stats(self):
         """Reset usage statistics."""
@@ -662,8 +663,12 @@ def get_client(reset: bool = False, use_provider_system: bool = True) -> Union[C
                     logger.warning(f"Failed to initialize provider from config: {e}. Falling back to AnthropicProvider")
                     # Fallback to AnthropicProvider instance (LLMProvider-compatible)
                     from kosmos.core.providers.anthropic import AnthropicProvider
+                    api_key = os.environ.get('ANTHROPIC_API_KEY')
+                    if not api_key:
+                        logger.error("ANTHROPIC_API_KEY not set; cannot create fallback provider")
+                        raise RuntimeError("No API key available for fallback AnthropicProvider")
                     fallback_config = {
-                        'api_key': os.environ.get('ANTHROPIC_API_KEY'),
+                        'api_key': api_key,
                         'model': _DEFAULT_CLAUDE_SONNET_MODEL,
                         'max_tokens': 4096,
                         'temperature': 0.7,

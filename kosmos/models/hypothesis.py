@@ -7,7 +7,7 @@ Complements the SQLAlchemy Hypothesis model in kosmos.db.models.
 
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator, ConfigDict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from kosmos.config import _DEFAULT_CLAUDE_SONNET_MODEL
@@ -73,8 +73,8 @@ class Hypothesis(BaseModel):
     related_papers: List[str] = Field(default_factory=list)  # Paper IDs used in generation
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     generated_by: str = Field(default="hypothesis_generator")
 
     # Evolution tracking (Phase 7)
@@ -259,7 +259,7 @@ class NoveltyReport(BaseModel):
     novelty_threshold_used: float = 0.75
     summary: str = Field(..., description="Human-readable summary")
 
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TestabilityReport(BaseModel):
@@ -293,7 +293,7 @@ class TestabilityReport(BaseModel):
     summary: str = Field(..., description="Human-readable summary")
     recommended: bool = Field(..., description="Recommended for testing")
 
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class PrioritizedHypothesis(BaseModel):
@@ -328,4 +328,4 @@ class PrioritizedHypothesis(BaseModel):
     def update_hypothesis_priority(self) -> None:
         """Update the hypothesis object with this priority score."""
         self.hypothesis.priority_score = self.priority_score
-        self.hypothesis.updated_at = datetime.utcnow()
+        self.hypothesis.updated_at = datetime.now(timezone.utc)

@@ -7,7 +7,7 @@ Provides abstract base class and registry for experiment templates.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Type
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import pkgutil
 import importlib
 import inspect
@@ -46,8 +46,8 @@ class TemplateMetadata(BaseModel):
 
     # Authorship
     author: str = Field(default="kosmos", description="Template author")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Usage statistics (tracked by registry)
     times_used: int = Field(default=0, ge=0)

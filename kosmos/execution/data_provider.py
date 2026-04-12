@@ -335,7 +335,26 @@ class DataProvider:
         """
         # Try to load from file first
         if file_path:
-            path = Path(file_path)
+            path = Path(file_path).resolve()
+
+            # Validate file extension
+            _ALLOWED_EXTENSIONS = {'.csv', '.tsv', '.parquet', '.json', '.jsonl', '.xlsx'}
+            if path.suffix.lower() not in _ALLOWED_EXTENSIONS:
+                raise ValueError(
+                    f"Disallowed file extension '{path.suffix}'. "
+                    f"Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}"
+                )
+
+            # Path traversal check: ensure resolved path is under allowed directory
+            if self.default_data_dir is not None:
+                allowed_root = self.default_data_dir.resolve()
+                try:
+                    path.relative_to(allowed_root)
+                except ValueError:
+                    raise ValueError(
+                        f"Path '{path}' is outside the allowed data directory '{allowed_root}'"
+                    )
+
             if path.exists():
                 try:
                     suffix = path.suffix.lower()
@@ -347,6 +366,8 @@ class DataProvider:
                         df = pd.read_json(path)
                     elif suffix == '.jsonl':
                         df = pd.read_json(path, lines=True)
+                    elif suffix == '.xlsx':
+                        df = pd.read_excel(path)
                     else:
                         df = pd.read_csv(path)
                     logger.info(f"Loaded data from file: {file_path} ({len(df)} rows)")
@@ -429,6 +450,16 @@ def generate_inline_data_code(
     """
     groups = groups or ["control", "experimental"]
     n_per_group = n_samples // len(groups)
+
+    # Validate variable names are safe Python identifiers to prevent code injection
+    if not group_var.isidentifier():
+        raise ValueError(
+            f"group_var '{group_var}' is not a valid Python identifier"
+        )
+    if not measure_var.isidentifier():
+        raise ValueError(
+            f"measure_var '{measure_var}' is not a valid Python identifier"
+        )
 
     code = f'''# Synthetic data generation (Issue #51 fix)
 # This enables computational experiments without external data files

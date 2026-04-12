@@ -7,10 +7,11 @@ Provides alert definitions and notification handlers for critical events.
 import logging
 import os
 import json
+import threading
 import time
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class Alert:
     name: str
     severity: AlertSeverity
     message: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     status: AlertStatus = AlertStatus.ACTIVE
     details: Dict[str, Any] = field(default_factory=dict)
     alert_id: Optional[str] = None
@@ -82,7 +83,7 @@ class AlertRule:
         # Check cooldown
         if self.last_triggered:
             cooldown_end = self.last_triggered + timedelta(seconds=self.cooldown_seconds)
-            if datetime.utcnow() < cooldown_end:
+            if datetime.now(timezone.utc) < cooldown_end:
                 return False
 
         # Check condition
@@ -102,7 +103,7 @@ class AlertRule:
         Returns:
             Alert instance
         """
-        self.last_triggered = datetime.utcnow()
+        self.last_triggered = datetime.now(timezone.utc)
         return Alert(
             name=self.name,
             severity=self.severity,
@@ -279,7 +280,7 @@ class AlertManager:
             return db_status["status"] != "healthy"
         except Exception as e:
             logger.warning("Database connection check error: %s", e, exc_info=True)
-            return False
+            return True
 
     def _check_api_failure_rate(self) -> bool:
         """Check if API failure rate is high."""
@@ -523,6 +524,7 @@ def pagerduty_notification_handler(alert: Alert):
 
 # Global alert manager instance
 _alert_manager: Optional[AlertManager] = None
+_alert_manager_lock = threading.Lock()
 
 
 def get_alert_manager() -> AlertManager:
@@ -534,22 +536,31 @@ def get_alert_manager() -> AlertManager:
     """
     global _alert_manager
     if _alert_manager is None:
-        _alert_manager = AlertManager()
+        with _alert_manager_lock:
+            if _alert_manager is None:
+                _alert_manager = AlertManager()
 
-        # Register default notification handlers
-        _alert_manager.add_notification_handler(log_notification_handler)
+                # Register default notification handlers
+                _alert_manager.add_notification_handler(log_notification_handler)
 
-        # Register optional handlers if enabled
-        if os.getenv("ALERT_EMAIL_ENABLED", "false").lower() == "true":
-            _alert_manager.add_notification_handler(email_notification_handler)
+                # Register optional handlers if enabled
+                if os.getenv("ALERT_EMAIL_ENABLED", "false").lower() == "true":
+                    _alert_manager.add_notification_handler(email_notification_handler)
 
-        if os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true":
-            _alert_manager.add_notification_handler(slack_notification_handler)
+                if os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true":
+                    _alert_manager.add_notification_handler(slack_notification_handler)
 
-        if os.getenv("ALERT_PAGERDUTY_ENABLED", "false").lower() == "true":
-            _alert_manager.add_notification_handler(pagerduty_notification_handler)
+                if os.getenv("ALERT_PAGERDUTY_ENABLED", "false").lower() == "true":
+                    _alert_manager.add_notification_handler(pagerduty_notification_handler)
 
     return _alert_manager
+
+
+def reset_alert_manager():
+    """Reset the global alert manager (for test isolation)."""
+    global _alert_manager
+    with _alert_manager_lock:
+        _alert_manager = None
 
 
 def evaluate_alerts():

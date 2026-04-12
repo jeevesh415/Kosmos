@@ -3,6 +3,9 @@ Agent registry for discovering and managing agents.
 
 Provides centralized management of all active agents in the system.
 
+Reserved for multi-agent message-passing architecture (future work).
+Not yet integrated into the main research loop.
+
 Async Architecture (Issue #66 fix):
 - _route_message() and send_message() are now async
 - Sync wrappers provided for backwards compatibility
@@ -11,7 +14,7 @@ Async Architecture (Issue #66 fix):
 from typing import Dict, List, Optional, Type, Any
 from kosmos.agents.base import BaseAgent, AgentMessage, AgentStatus
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 
 
@@ -373,10 +376,17 @@ class AgentRegistry:
             )
             for target in targets
         ]
-        messages = await asyncio.gather(*send_tasks)
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
 
-        logger.info(f"Broadcast message from {from_agent_id} to {len(targets)} agents")
-        return list(messages)
+        messages = []
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                logger.error(f"Failed to send broadcast to {targets[i].agent_id}: {result}")
+            else:
+                messages.append(result)
+
+        logger.info(f"Broadcast message from {from_agent_id} to {len(messages)}/{len(targets)} agents")
+        return messages
 
     def broadcast_message_sync(
         self,
@@ -459,7 +469,7 @@ class AgentRegistry:
             "unhealthy_agents": total_agents - healthy_agents,
             "agent_health": agent_health,
             "message_history_size": len(self._message_history),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     def get_agent_statistics(self) -> Dict[str, Any]:

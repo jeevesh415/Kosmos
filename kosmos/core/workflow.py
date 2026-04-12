@@ -8,7 +8,7 @@ INITIALIZING → GENERATING_HYPOTHESES → DESIGNING_EXPERIMENTS → EXECUTING
 
 from enum import Enum
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ConfigDict
 import logging
 
@@ -50,7 +50,7 @@ class WorkflowTransition(BaseModel):
     from_state: WorkflowState
     to_state: WorkflowState
     action: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -86,8 +86,8 @@ class ResearchPlan(BaseModel):
     convergence_reason: Optional[str] = None
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Additional metadata
     success_criteria: Dict[str, Any] = Field(default_factory=dict)
@@ -95,7 +95,7 @@ class ResearchPlan(BaseModel):
 
     def update_timestamp(self):
         """Update the updated_at timestamp."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def add_hypothesis(self, hypothesis_id: str):
         """Add hypothesis to pool."""
@@ -287,15 +287,15 @@ class ResearchWorkflow:
         time_in_state = 0.0
         if self.transition_history:
             last_transition = self.transition_history[-1]
-            time_in_state = (datetime.utcnow() - last_transition.timestamp).total_seconds()
+            time_in_state = (datetime.now(timezone.utc) - last_transition.timestamp).total_seconds()
 
         # Log workflow transition if enabled
         log_transitions = False
         try:
             from kosmos.config import get_config
             log_transitions = get_config().logging.log_workflow_transitions
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Config loading for workflow transitions failed: {e}")
 
         if log_transitions:
             logger.debug(
@@ -387,7 +387,7 @@ class ResearchWorkflow:
 
                 # If still in this state, use current time
                 if end_time is None and self.current_state == state:
-                    end_time = datetime.utcnow()
+                    end_time = datetime.now(timezone.utc)
 
                 if end_time:
                     duration = (end_time - transition.timestamp).total_seconds()

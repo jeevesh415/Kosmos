@@ -8,7 +8,7 @@ Implements hybrid retirement logic:
 """
 
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import logging
 import json
@@ -56,7 +56,7 @@ class HypothesisLineage(BaseModel):
     generation: int = 1
     refinement_reason: Optional[str] = None
     evidence_basis: List[str] = Field(default_factory=list)  # Result IDs
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class HypothesisRefiner:
@@ -379,7 +379,7 @@ Respond with JSON:
                         "action": "refined",
                         "based_on_result": result.id,
                         "changes": refinement.get("changes_made", ""),
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }]
                 )
 
@@ -474,7 +474,7 @@ Respond with JSON array:
                             "action": "spawned",
                             "based_on_result": result.id,
                             "relationship": variant_data.get("relationship", ""),
-                            "timestamp": datetime.utcnow().isoformat()
+                            "timestamp": datetime.now(timezone.utc).isoformat()
                         }]
                     )
 
@@ -514,11 +514,11 @@ Respond with JSON array:
             Hypothesis: Updated hypothesis with REJECTED status
         """
         hypothesis.status = HypothesisStatus.REJECTED
-        hypothesis.updated_at = datetime.utcnow()
+        hypothesis.updated_at = datetime.now(timezone.utc)
         hypothesis.evolution_history.append({
             "action": "retired",
             "rationale": rationale,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
         logger.info(f"Retired hypothesis {hypothesis.id}: {rationale}")
@@ -575,7 +575,7 @@ Respond with JSON array:
                             "hypothesis2_statement": hyp2.statement,
                             "hypothesis1_supported": support1,
                             "hypothesis2_supported": support2,
-                            "detected_at": datetime.utcnow().isoformat()
+                            "detected_at": datetime.now(timezone.utc).isoformat()
                         }
 
                         contradictions.append(contradiction)
@@ -721,7 +721,7 @@ Respond with JSON:
                         "action": "merged",
                         "merged_from": [h.id for h in hypotheses],
                         "synthesis": merge_data.get("synthesis_explanation", ""),
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }]
                 )
 

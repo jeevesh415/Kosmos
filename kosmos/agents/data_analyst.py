@@ -8,7 +8,7 @@ identifying anomalies, and generating scientific insights.
 import logging
 import json
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 
 from kosmos.agents.base import BaseAgent, AgentMessage, MessageType, AgentStatus
@@ -71,7 +71,7 @@ class ResultInterpretation:
         self.anomalies_detected = anomalies_detected
         self.patterns_detected = patterns_detected
         self.overall_assessment = overall_assessment
-        self.created_at = created_at or datetime.utcnow()
+        self.created_at = created_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

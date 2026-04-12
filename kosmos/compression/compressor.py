@@ -464,14 +464,14 @@ class ContextCompressor:
         # Compress individual tasks
         compressed_tasks = []
         for task_result in task_results:
-            if task_result.get('type') == 'data_analysis':
+            if task_result.get('task_type') == 'data_analysis':
                 if 'notebook_path' in task_result:
                     compressed = self.notebook_compressor.compress_notebook(
                         task_result['notebook_path'],
                         task_result.get('notebook_content')
                     )
                     compressed_tasks.append(compressed)
-            elif task_result.get('type') == 'literature_review':
+            elif task_result.get('task_type') == 'literature_review':
                 if 'papers' in task_result:
                     compressed_papers = self.literature_compressor.compress_papers(
                         task_result['papers']

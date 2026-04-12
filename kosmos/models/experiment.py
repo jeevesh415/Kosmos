@@ -7,11 +7,16 @@ Complements the SQLAlchemy Experiment model in kosmos.db.models.
 
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field, field_validator, ConfigDict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+import logging
 
 from kosmos.models.hypothesis import ExperimentType
 from kosmos.config import _DEFAULT_CLAUDE_SONNET_MODEL
+
+_experiment_logger = logging.getLogger(__name__)
+
+_MAX_SAMPLE_SIZE = 100_000
 
 class VariableType(str, Enum):
     """Types of variables in an experiment."""
@@ -101,14 +106,22 @@ class ControlGroup(BaseModel):
     @field_validator('sample_size', mode='before')
     @classmethod
     def coerce_sample_size(cls, v):
-        """Coerce string sample_size from LLM output to int."""
+        """Coerce string sample_size from LLM output to int, enforce upper bound."""
         if v is None:
             return v
         if isinstance(v, str):
             try:
-                return int(v)
+                v = int(v)
             except (ValueError, TypeError):
+                _experiment_logger.warning(
+                    f"Could not coerce sample_size '{v}' to int, setting to None"
+                )
                 return None
+        if isinstance(v, (int, float)) and v > _MAX_SAMPLE_SIZE:
+            _experiment_logger.warning(
+                f"sample_size {v} exceeds maximum {_MAX_SAMPLE_SIZE}, clamping"
+            )
+            return _MAX_SAMPLE_SIZE
         return v
 
     @field_validator('description', 'rationale')
@@ -353,9 +366,30 @@ class ExperimentProtocol(BaseModel):
 
     # Statistical design
     statistical_tests: List[StatisticalTestSpec] = Field(default_factory=list)
-    sample_size: Optional[int] = Field(None, ge=1)
+    sample_size: Optional[int] = Field(None, ge=1, le=_MAX_SAMPLE_SIZE)
     sample_size_rationale: Optional[str] = None
     power_analysis_performed: bool = Field(default=False)
+
+    @field_validator('sample_size', mode='before')
+    @classmethod
+    def coerce_protocol_sample_size(cls, v):
+        """Coerce and bound sample_size for protocol."""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            try:
+                v = int(v)
+            except (ValueError, TypeError):
+                _experiment_logger.warning(
+                    f"Could not coerce protocol sample_size '{v}' to int, setting to None"
+                )
+                return None
+        if isinstance(v, (int, float)) and v > _MAX_SAMPLE_SIZE:
+            _experiment_logger.warning(
+                f"Protocol sample_size {v} exceeds maximum {_MAX_SAMPLE_SIZE}, clamping"
+            )
+            return _MAX_SAMPLE_SIZE
+        return v
 
     # Resources & constraints
     resource_requirements: ResourceRequirements
@@ -373,8 +407,8 @@ class ExperimentProtocol(BaseModel):
     template_version: Optional[str] = None
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     generated_by: str = Field(default="experiment_designer")
 
     @field_validator('description')
@@ -662,4 +696,4 @@ class ValidationReport(BaseModel):
     summary: str = Field(..., description="Human-readable validation summary")
     recommendations: List[str] = Field(default_factory=list)
 
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

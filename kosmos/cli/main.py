@@ -18,9 +18,6 @@ from rich.panel import Panel
 from rich.traceback import install as install_rich_traceback
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
 from kosmos.cli.utils import (
     console,
     print_error,
@@ -120,6 +117,10 @@ def main(
         kosmos COMMAND --help
     """
     # Store global options in context
+    # Load environment variables from .env file (deferred from import time
+    # to avoid mutating os.environ when the module is merely imported)
+    load_dotenv()
+
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["debug"] = debug
@@ -396,23 +397,26 @@ def doctor():
 # These will be implemented in separate files
 def register_commands():
     """Register all CLI command groups."""
-    # Import command modules when they're implemented
-    try:
-        from kosmos.cli.commands import run, status, history, cache, config as config_cmd, profile, graph
+    # Register each command independently so a single broken module
+    # doesn't disable all commands.
+    _command_specs = [
+        ("run", "kosmos.cli.commands.run", "run_research"),
+        ("status", "kosmos.cli.commands.status", "show_status"),
+        ("history", "kosmos.cli.commands.history", "show_history"),
+        ("cache", "kosmos.cli.commands.cache", "manage_cache"),
+        ("config", "kosmos.cli.commands.config", "manage_config"),
+        ("profile", "kosmos.cli.commands.profile", "profile_command"),
+        ("graph", "kosmos.cli.commands.graph", "manage_graph"),
+    ]
 
-        # Register commands
-        app.command(name="run")(run.run_research)
-        app.command(name="status")(status.show_status)
-        app.command(name="history")(history.show_history)
-        app.command(name="cache")(cache.manage_cache)
-        app.command(name="config")(config_cmd.manage_config)
-        app.command(name="profile")(profile.profile_command)
-        app.command(name="graph")(graph.manage_graph)
-
-    except ImportError as e:
-        # Commands not yet implemented - silently skip
-        logging.debug(f"Command import failed: {e}")
-        pass
+    import importlib
+    for cmd_name, module_path, func_name in _command_specs:
+        try:
+            mod = importlib.import_module(module_path)
+            func = getattr(mod, func_name)
+            app.command(name=cmd_name)(func)
+        except (ImportError, AttributeError) as e:
+            logging.debug(f"Command '{cmd_name}' import failed: {e}")
 
 
 # Register commands

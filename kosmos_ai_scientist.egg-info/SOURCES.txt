@@ -288,6 +288,7 @@ kosmos/core/llm.py
 kosmos/core/logging.py
 kosmos/core/memory.py
 kosmos/core/metrics.py
+kosmos/core/pricing.py
 kosmos/core/profiling.py
 kosmos/core/prompts.py
 kosmos/core/rollout_tracker.py
@@ -410,6 +411,7 @@ kosmos/utils/compat.py
 kosmos/utils/setup.py
 kosmos/validation/__init__.py
 kosmos/validation/accuracy_tracker.py
+kosmos/validation/accuracy_validator.py
 kosmos/validation/benchmark_dataset.py
 kosmos/validation/failure_detector.py
 kosmos/validation/null_model.py

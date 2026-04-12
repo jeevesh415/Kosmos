@@ -113,7 +113,24 @@ class ResearchWorkflow:
         # Gap 2: Orchestration Components
         self.plan_creator = PlanCreatorAgent(anthropic_client)
         self.plan_reviewer = PlanReviewerAgent(anthropic_client)
-        self.delegation_manager = DelegationManager()
+
+        # Wire real agents into DelegationManager when a client is available
+        agents = {}
+        if anthropic_client:
+            from kosmos.agents import (
+                DataAnalystAgent,
+                HypothesisGeneratorAgent,
+                ExperimentDesignerAgent,
+                LiteratureAnalyzerAgent,
+            )
+            agents = {
+                'data_analyst': DataAnalystAgent(),
+                'hypothesis_generator': HypothesisGeneratorAgent(),
+                'experiment_designer': ExperimentDesignerAgent(),
+                'literature_analyzer': LiteratureAnalyzerAgent(),
+            }
+
+        self.delegation_manager = DelegationManager(agents=agents)
         self.novelty_detector = NoveltyDetector()
         logger.info("✓ Gap 2: Orchestration components initialized")
 
@@ -330,14 +347,16 @@ class ResearchWorkflow:
         logger.info(f"  Validated: {validated_count}/{len(completed_tasks)} findings")
 
         # Step 8: Compress cycle results
+        compressed_summary = None
         if completed_tasks:
             compressed_cycle = self.context_compressor.compress_cycle_results(
                 cycle,
                 completed_tasks
             )
+            compressed_summary = compressed_cycle.summary
             logger.info(
                 f"  Compressed: {len(completed_tasks)} tasks → "
-                f"{len(compressed_cycle.summary)} chars"
+                f"{len(compressed_summary)} chars"
             )
 
         # Track tasks for novelty detection
@@ -353,7 +372,8 @@ class ResearchWorkflow:
             'tasks_completed': len(completed_tasks),
             'validated_findings': validated_count,
             'plan_approved': review.approved,
-            'plan_score': review.average_score
+            'plan_score': review.average_score,
+            'compressed_summary': compressed_summary
         }
 
     def _compute_final_statistics(self) -> Dict:

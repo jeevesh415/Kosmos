@@ -391,22 +391,32 @@ class DelegationManager:
         cycle: int,
         context: Dict
     ) -> Dict:
-        """Execute data analysis task."""
-        # Mock implementation (replace with actual DataAnalystAgent call)
+        """Execute data analysis task via DataAnalystAgent."""
+        agent = self.agents.get('data_analyst')
+        if not agent:
+            raise RuntimeError(
+                "No 'data_analyst' agent was provided to DelegationManager. "
+                "Pass agents={'data_analyst': DataAnalystAgent(), ...} at init."
+            )
+
         logger.info(f"Executing data analysis task: {task.get('description', '')[:50]}...")
 
+        result = agent.execute({
+            'action': 'interpret_results',
+            'result': {'description': task.get('description', '')},
+            'hypothesis': context.get('research_objective', ''),
+            'lit_context': context.get('recent_findings', []),
+        })
+
+        interpretation = result.get('interpretation', {})
         return {
             'finding_id': f"cycle{cycle}_task{task.get('id', 0)}",
             'cycle': cycle,
             'task_id': task.get('id', 0),
-            'summary': f"Data analysis completed: {task.get('description', '')[:100]}",
-            'statistics': {
-                'p_value': 0.01,
-                'sample_size': 100,
-                'confidence': 0.95
-            },
-            'methods': 'Statistical analysis using appropriate tests',
-            'interpretation': 'Results support the hypothesis',
+            'summary': interpretation.get('summary', ''),
+            'statistics': interpretation.get('key_findings', []),
+            'methods': 'DataAnalystAgent.execute(interpret_results)',
+            'interpretation': interpretation.get('overall_assessment', ''),
             'evidence_type': 'data_analysis',
             'metadata': {'libraries_used': task.get('required_skills', [])}
         }
@@ -417,20 +427,35 @@ class DelegationManager:
         cycle: int,
         context: Dict
     ) -> Dict:
-        """Execute literature review task."""
+        """Execute literature review task via LiteratureAnalyzerAgent."""
+        agent = self.agents.get('literature_analyzer')
+        if not agent:
+            raise RuntimeError(
+                "No 'literature_analyzer' agent was provided to DelegationManager. "
+                "Pass agents={'literature_analyzer': LiteratureAnalyzerAgent(), ...} at init."
+            )
+
         logger.info(f"Executing literature review: {task.get('description', '')[:50]}...")
 
+        result = agent.execute({
+            'task_type': 'analyze_corpus',
+            'papers': context.get('recent_findings', []),
+            'generate_insights': True,
+        })
+
+        insights = result.get('insights', {})
         return {
             'finding_id': f"cycle{cycle}_task{task.get('id', 0)}",
             'cycle': cycle,
             'task_id': task.get('id', 0),
-            'summary': f"Literature review completed: {task.get('description', '')[:100]}",
+            'summary': f"Literature review: {task.get('description', '')[:100]}",
             'statistics': {
-                'papers_reviewed': 10,
-                'relevant_papers': 5
+                'corpus_size': insights.get('corpus_size', 0),
+                'common_themes': insights.get('common_themes', []),
+                'research_gaps': insights.get('research_gaps', []),
             },
-            'methods': 'Literature search using academic databases',
-            'interpretation': 'Existing literature supports our hypothesis',
+            'methods': 'LiteratureAnalyzerAgent.execute(analyze_corpus)',
+            'interpretation': '; '.join(insights.get('common_themes', [])),
             'evidence_type': 'literature_review'
         }
 
@@ -440,19 +465,36 @@ class DelegationManager:
         cycle: int,
         context: Dict
     ) -> Dict:
-        """Execute hypothesis generation task."""
+        """Execute hypothesis generation task via HypothesisGeneratorAgent."""
+        agent = self.agents.get('hypothesis_generator')
+        if not agent:
+            raise RuntimeError(
+                "No 'hypothesis_generator' agent was provided to DelegationManager. "
+                "Pass agents={'hypothesis_generator': HypothesisGeneratorAgent(), ...} at init."
+            )
+
         logger.info(f"Executing hypothesis generation: {task.get('description', '')[:50]}...")
 
+        response = agent.generate_hypotheses(
+            research_question=task.get('description', ''),
+            store_in_db=False,
+        )
+
+        hypotheses = response.hypotheses if hasattr(response, 'hypotheses') else []
         return {
             'finding_id': f"cycle{cycle}_task{task.get('id', 0)}",
             'cycle': cycle,
             'task_id': task.get('id', 0),
-            'summary': f"Generated new hypotheses: {task.get('description', '')[:100]}",
+            'summary': '; '.join(h.statement for h in hypotheses) if hypotheses else '',
             'statistics': {
-                'hypotheses_generated': 3,
-                'testable_hypotheses': 2
+                'hypotheses_generated': len(hypotheses),
+                'testable_hypotheses': sum(
+                    1 for h in hypotheses
+                    if getattr(h, 'testability_score', 0) >= 0.5
+                ),
+                'generation_time_seconds': getattr(response, 'generation_time_seconds', None),
             },
-            'methods': 'Hypothesis generation from current findings',
+            'methods': 'HypothesisGeneratorAgent.generate_hypotheses()',
             'interpretation': 'New testable hypotheses identified',
             'evidence_type': 'hypothesis_generation'
         }
@@ -463,19 +505,51 @@ class DelegationManager:
         cycle: int,
         context: Dict
     ) -> Dict:
-        """Execute generic task (fallback)."""
-        logger.warning(f"Unknown task type: {task.get('type')}, using generic executor")
+        """Execute generic task -- routes experiment_design to its agent, else raises."""
+        task_type = task.get('type', 'unknown')
 
-        return {
-            'finding_id': f"cycle{cycle}_task{task.get('id', 0)}",
-            'cycle': cycle,
-            'task_id': task.get('id', 0),
-            'summary': f"Task completed: {task.get('description', '')[:100]}",
-            'statistics': {},
-            'methods': 'Generic task execution',
-            'interpretation': 'Task completed successfully',
-            'evidence_type': task.get('type', 'generic')
-        }
+        # Route experiment_design to ExperimentDesignerAgent
+        if task_type == 'experiment_design':
+            agent = self.agents.get('experiment_designer')
+            if not agent:
+                raise RuntimeError(
+                    "No 'experiment_designer' agent was provided to DelegationManager. "
+                    "Pass agents={'experiment_designer': ExperimentDesignerAgent(), ...} at init."
+                )
+
+            logger.info(f"Executing experiment design: {task.get('description', '')[:50]}...")
+
+            response = agent.design_experiment(
+                hypothesis=task.get('description', ''),
+                store_in_db=False,
+            )
+
+            protocol = response.protocol if hasattr(response, 'protocol') else None
+            return {
+                'finding_id': f"cycle{cycle}_task{task.get('id', 0)}",
+                'cycle': cycle,
+                'task_id': task.get('id', 0),
+                'summary': getattr(protocol, 'name', '') if protocol else '',
+                'statistics': {
+                    'rigor_score': getattr(response, 'rigor_score', None),
+                    'completeness_score': getattr(response, 'completeness_score', None),
+                    'feasibility': getattr(response, 'feasibility_assessment', None),
+                    'design_time_seconds': getattr(response, 'design_time_seconds', None),
+                },
+                'methods': 'ExperimentDesignerAgent.design_experiment()',
+                'interpretation': getattr(response, 'feasibility_assessment', ''),
+                'evidence_type': 'experiment_design'
+            }
+
+        # No matching agent for unknown task types
+        if not self.agents:
+            raise RuntimeError(
+                "No agents were provided to DelegationManager. "
+                "Cannot execute task type: " + task_type
+            )
+
+        logger.warning(f"Unknown task type: {task_type}, no specific agent handler")
+        raise RuntimeError(f"No agent handler for task type: {task_type}")
 
     def get_execution_statistics(self) -> Dict:
         """Get statistics about task execution."""

@@ -113,6 +113,9 @@ class ReproducibilityManager:
         # Track current seed
         self.current_seed: Optional[int] = None
 
+        # Modern NumPy Generator (set by set_seed())
+        self._rng = None
+
         # Environment snapshots by experiment
         self.environments: Dict[str, EnvironmentSnapshot] = {}
 
@@ -139,7 +142,8 @@ class ReproducibilityManager:
 
         # Set NumPy seed if available
         if HAS_NUMPY:
-            np.random.seed(seed)
+            np.random.seed(seed)  # Legacy API for library compatibility
+            self._rng = np.random.default_rng(seed)  # Modern Generator API
 
         # Try to set PyTorch seed if available
         try:

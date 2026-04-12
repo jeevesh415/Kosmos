@@ -8,7 +8,7 @@ with validation and structured data handling.
 from pydantic import BaseModel, Field, field_validator
 from kosmos.utils.compat import model_to_dict
 from typing import Dict, List, Optional, Any, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import json
 
@@ -200,8 +200,8 @@ class ExperimentResult(BaseModel):
     )
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Result creation time")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Result creation time")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Last update time")
 
     @field_validator('statistical_tests')
     @classmethod
@@ -346,10 +346,12 @@ class ResultExport(BaseModel):
             lines.append("| Variable | Mean | Median | Std | Min | Max | N |")
             lines.append("|----------|------|--------|-----|-----|-----|---|")
             for var in self.result.variable_results:
+                def fmt(v):
+                    return f"{v:.2f}" if v is not None else "N/A"
                 lines.append(
                     f"| {var.variable_name} | "
-                    f"{var.mean:.2f} | {var.median:.2f} | {var.std:.2f} | "
-                    f"{var.min:.2f} | {var.max:.2f} | {var.n_samples} |"
+                    f"{fmt(var.mean)} | {fmt(var.median)} | {fmt(var.std)} | "
+                    f"{fmt(var.min)} | {fmt(var.max)} | {var.n_samples or 'N/A'} |"
                 )
             lines.append("")
 

@@ -14,7 +14,7 @@ import time
 import logging
 import asyncio
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
@@ -83,6 +83,10 @@ def run_research(
         # Streaming without token display (just progress events)
         kosmos run "Question" --stream --no-stream-tokens
     """
+    # Defaults for settings only available via interactive mode
+    auto_model_selection = True
+    parallel_execution = False
+
     # Use interactive mode if requested or no question provided
     if interactive or not question:
         config = run_interactive_mode()
@@ -97,6 +101,8 @@ def run_research(
         max_iterations = config["max_iterations"]
         budget = config.get("budget_usd")
         no_cache = not config.get("enable_cache", True)
+        auto_model_selection = config.get("auto_model_selection", True)
+        parallel_execution = config.get("parallel_execution", False)
 
     # Validate inputs
     if not question:
@@ -167,6 +173,10 @@ def run_research(
 
             # Dataset path
             "data_path": str(data_path.resolve()) if data_path else None,
+
+            # Interactive mode settings
+            "auto_model_selection": auto_model_selection,
+            "parallel_execution": parallel_execution,
         }
 
         # Create research director
@@ -285,7 +295,7 @@ async def run_with_progress_async(
 
         table.add_row("Workflow State", create_status_text(state))
         table.add_row("Iteration", f"{iteration}/{max_iterations}")
-        table.add_row("Started", format_timestamp(datetime.utcnow()))
+        table.add_row("Started", format_timestamp(datetime.now(timezone.utc)))
 
         return table
 

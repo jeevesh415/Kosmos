@@ -5,8 +5,6 @@ Tests ScholarEval with real discoveries and filtering workflow.
 """
 
 import pytest
-import asyncio
-
 from kosmos.validation.scholar_eval import ScholarEvalValidator, ScholarEvalScore
 
 
@@ -107,7 +105,7 @@ class TestScholarEvalPipeline:
     async def test_evaluate_high_quality_finding(self, scholar_validator, high_quality_findings):
         """Test evaluation of high-quality finding."""
         finding = high_quality_findings[0]
-        score = await scholar_validator.evaluate_finding(finding)
+        score = scholar_validator.evaluate_finding(finding)
 
         assert isinstance(score, ScholarEvalScore)
         assert score.passes_threshold is True
@@ -120,7 +118,7 @@ class TestScholarEvalPipeline:
     async def test_evaluate_low_quality_finding(self, scholar_validator, low_quality_findings):
         """Test evaluation of low-quality finding."""
         finding = low_quality_findings[0]  # No statistics, no methods
-        score = await scholar_validator.evaluate_finding(finding)
+        score = scholar_validator.evaluate_finding(finding)
 
         assert isinstance(score, ScholarEvalScore)
         # May or may not pass depending on mock behavior
@@ -130,7 +128,7 @@ class TestScholarEvalPipeline:
         """Test batch validation correctly filters findings."""
         scores = []
         for finding in mixed_quality_findings:
-            score = await scholar_validator.evaluate_finding(finding)
+            score = scholar_validator.evaluate_finding(finding)
             scores.append((finding, score))
 
         passed = [(f, s) for f, s in scores if s.passes_threshold]
@@ -144,7 +142,7 @@ class TestScholarEvalPipeline:
         """Test computing validation statistics."""
         scores = []
         for finding in high_quality_findings:
-            score = await scholar_validator.evaluate_finding(finding)
+            score = scholar_validator.evaluate_finding(finding)
             scores.append(score)
 
         stats = scholar_validator.get_validation_statistics(scores)
@@ -162,7 +160,7 @@ class TestScholarEvalScoring:
     @pytest.mark.asyncio
     async def test_all_dimensions_scored(self, scholar_validator, high_quality_findings):
         """Test that all 8 dimensions are scored."""
-        score = await scholar_validator.evaluate_finding(high_quality_findings[0])
+        score = scholar_validator.evaluate_finding(high_quality_findings[0])
 
         # Check all dimensions present
         dimensions = ['novelty', 'rigor', 'clarity', 'reproducibility',
@@ -184,7 +182,7 @@ class TestScholarEvalScoring:
             'interpretation': 'Clear'
         }
 
-        score = await scholar_validator.evaluate_finding(high_rigor_finding)
+        score = scholar_validator.evaluate_finding(high_rigor_finding)
 
         # Verify rigor contributes significantly
         rigor_contribution = score.rigor * scholar_validator.DIMENSION_WEIGHTS['rigor']
@@ -197,7 +195,7 @@ class TestValidationFeedback:
     @pytest.mark.asyncio
     async def test_approved_feedback(self, scholar_validator, high_quality_findings):
         """Test feedback for approved findings."""
-        score = await scholar_validator.evaluate_finding(high_quality_findings[0])
+        score = scholar_validator.evaluate_finding(high_quality_findings[0])
 
         if score.passes_threshold:
             assert 'APPROVED' in score.feedback or 'approved' in score.feedback.lower()
@@ -205,7 +203,7 @@ class TestValidationFeedback:
     @pytest.mark.asyncio
     async def test_rejected_feedback(self, scholar_validator, low_quality_findings):
         """Test feedback for rejected findings."""
-        score = await scholar_validator.evaluate_finding(low_quality_findings[0])
+        score = scholar_validator.evaluate_finding(low_quality_findings[0])
 
         if not score.passes_threshold:
             assert 'REJECTED' in score.feedback or 'rejected' in score.feedback.lower()
@@ -213,7 +211,7 @@ class TestValidationFeedback:
     @pytest.mark.asyncio
     async def test_feedback_actionable(self, scholar_validator, low_quality_findings):
         """Test that rejection feedback is actionable."""
-        score = await scholar_validator.evaluate_finding(low_quality_findings[1])
+        score = scholar_validator.evaluate_finding(low_quality_findings[1])
 
         # Feedback should mention weaknesses or suggestions
         feedback_lower = score.feedback.lower()
@@ -237,7 +235,7 @@ class TestValidationThresholds:
             min_rigor_score=0.85
         )
 
-        score = await strict_validator.evaluate_finding(high_quality_findings[0])
+        score = strict_validator.evaluate_finding(high_quality_findings[0])
 
         # With stricter threshold, may not pass
         assert isinstance(score, ScholarEvalScore)
@@ -253,7 +251,7 @@ class TestValidationThresholds:
             'interpretation': 'Needs more research'
         }
 
-        score = await scholar_validator.evaluate_finding(finding)
+        score = scholar_validator.evaluate_finding(finding)
 
         # Should have feedback about rigor if failed
         if not score.passes_threshold and score.rigor < scholar_validator.min_rigor_score:
@@ -266,7 +264,7 @@ class TestValidationEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_finding(self, scholar_validator):
         """Test validation of empty finding."""
-        score = await scholar_validator.evaluate_finding({})
+        score = scholar_validator.evaluate_finding({})
 
         assert isinstance(score, ScholarEvalScore)
         assert isinstance(score.feedback, str)
@@ -278,19 +276,16 @@ class TestValidationEdgeCases:
             'summary': 'Partial finding with only summary'
         }
 
-        score = await scholar_validator.evaluate_finding(partial_finding)
+        score = scholar_validator.evaluate_finding(partial_finding)
 
         assert isinstance(score, ScholarEvalScore)
 
-    @pytest.mark.asyncio
-    async def test_concurrent_validation(self, scholar_validator, mixed_quality_findings):
-        """Test concurrent validation of multiple findings."""
-        tasks = [
+    def test_concurrent_validation(self, scholar_validator, mixed_quality_findings):
+        """Test validation of multiple findings."""
+        scores = [
             scholar_validator.evaluate_finding(f)
             for f in mixed_quality_findings
         ]
-
-        scores = await asyncio.gather(*tasks)
 
         assert len(scores) == len(mixed_quality_findings)
         assert all(isinstance(s, ScholarEvalScore) for s in scores)

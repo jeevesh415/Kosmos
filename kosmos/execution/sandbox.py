@@ -266,8 +266,13 @@ class DockerSandbox:
             'nano_cpus': int(self.cpu_limit * 1e9),  # Convert to nano CPUs
             'network_disabled': self.network_disabled,
             'read_only': self.read_only,
-            'tmpfs': {'/tmp': 'rw,noexec,nosuid,size=100m'},
+            'tmpfs': {
+                '/tmp': 'rw,noexec,nosuid,size=100m',
+                '/home/sandbox/.local': 'rw,noexec,nosuid,size=50m',
+            },
             'security_opt': ['no-new-privileges'],
+            'cap_drop': ['ALL'],
+            'labels': {'kosmos.sandbox': 'true'},
             'working_dir': '/workspace'
         }
 

@@ -10,7 +10,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Any, Optional, Literal, List
 
@@ -93,7 +93,7 @@ class StageTracker:
 
         start = time.time()
         event = StageEvent(
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat() + "Z",
             process_id=self.process_id,
             stage=stage,
             status="started",
@@ -128,7 +128,7 @@ class StageTracker:
             return
 
         event = StageEvent(
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat() + "Z",
             process_id=self.process_id,
             stage=parent_stage,
             substage=substage,

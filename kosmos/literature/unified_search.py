@@ -179,8 +179,8 @@ class UnifiedLiteratureSearch:
                         try:
                             papers = future.result(timeout=0)
                             all_papers.extend(papers)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Paper search future failed: {e}")
 
         logger.info(f"Total papers retrieved (before dedup): {len(all_papers)}")
 

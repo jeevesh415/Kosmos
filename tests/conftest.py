@@ -513,10 +513,8 @@ def mock_skill_loader():
 @pytest.fixture
 def mock_scholar_eval_validator():
     """Mock ScholarEval validator for testing."""
-    from unittest.mock import AsyncMock
-
     mock = Mock()
-    mock.evaluate_finding = AsyncMock(return_value=Mock(
+    mock.evaluate_finding = Mock(return_value=Mock(
         novelty=0.8,
         rigor=0.85,
         clarity=0.75,

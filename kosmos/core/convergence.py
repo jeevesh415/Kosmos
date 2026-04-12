@@ -7,7 +7,7 @@ Implements mandatory and optional stopping criteria:
 """
 
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
@@ -64,12 +64,12 @@ class ConvergenceMetrics(BaseModel):
     cost_per_discovery: Optional[float] = None
 
     # Timestamps
-    start_time: datetime = Field(default_factory=datetime.utcnow)
-    last_update: datetime = Field(default_factory=datetime.utcnow)
+    start_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_update: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def update_timestamp(self):
         """Update last_update timestamp."""
-        self.last_update = datetime.utcnow()
+        self.last_update = datetime.now(timezone.utc)
 
 
 class StoppingDecision(BaseModel):
@@ -80,7 +80,7 @@ class StoppingDecision(BaseModel):
     is_mandatory: bool  # True if mandatory criterion, False if optional
     confidence: float = Field(1.0, ge=0.0, le=1.0, description="Confidence in decision")
     details: str = ""
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ConvergenceReport(BaseModel):
@@ -113,7 +113,7 @@ class ConvergenceReport(BaseModel):
     summary: str = ""
     detailed_report: str = ""
 
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_markdown(self) -> str:
         """Export report as markdown."""

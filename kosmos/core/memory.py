@@ -9,7 +9,7 @@ Categories:
 """
 
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
@@ -42,14 +42,14 @@ class Memory(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     importance: float = Field(0.5, ge=0.0, le=1.0, description="Importance score")
     access_count: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_accessed: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_accessed: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tags: List[str] = Field(default_factory=list)
 
     def access(self):
         """Record memory access."""
         self.access_count += 1
-        self.last_accessed = datetime.utcnow()
+        self.last_accessed = datetime.now(timezone.utc)
 
 
 class ExperimentSignature(BaseModel):
@@ -60,7 +60,7 @@ class ExperimentSignature(BaseModel):
     combined_hash: str
     hypothesis_id: Optional[str] = None
     protocol_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MemoryStore:
@@ -130,7 +130,7 @@ class MemoryStore:
         """
         # Generate memory ID
         memory_id = hashlib.md5(
-            f"{category}:{content}:{datetime.utcnow().isoformat()}".encode()
+            f"{category}:{content}:{datetime.now(timezone.utc).isoformat()}".encode()
         ).hexdigest()[:16]
 
         memory = Memory(
@@ -337,7 +337,7 @@ class MemoryStore:
 
         # Sort by importance * recency
         results.sort(
-            key=lambda m: m.importance * (1.0 / max(1, (datetime.utcnow() - m.created_at).days + 1)),
+            key=lambda m: m.importance * (1.0 / max(1, (datetime.now(timezone.utc) - m.created_at).days + 1)),
             reverse=True
         )
 
@@ -494,7 +494,7 @@ class MemoryStore:
         # 2. Recent (< prune_after_days)
         # 3. Frequently accessed (access_count > 0)
 
-        cutoff_date = datetime.utcnow() - timedelta(days=self.prune_after_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.prune_after_days)
 
         kept = []
         pruned_count = 0

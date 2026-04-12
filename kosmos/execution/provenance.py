@@ -23,6 +23,21 @@ from typing import Dict, List, Optional, Any
 logger = logging.getLogger(__name__)
 
 
+def get_git_sha() -> Optional[str]:
+    """Get current git commit SHA."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception as e:
+        logger.debug(f"Git commit hash retrieval failed: {e}")
+    return None
+
+
 @dataclass
 class CellLineMapping:
     """
@@ -104,6 +119,13 @@ class CodeProvenance:
     task_id: Optional[int] = None         # Task ID within cycle
     analysis_type: Optional[str] = None   # Type of analysis (correlation, t-test, etc.)
 
+    # Provenance & reproducibility metadata (WP8)
+    seed: Optional[int] = None            # Random seed used
+    git_sha: Optional[str] = None         # Git commit SHA
+    model: Optional[str] = None           # LLM model used for generation
+    temperature: Optional[float] = None   # LLM temperature setting
+    data_hash: Optional[str] = None       # SHA256 hash of input data
+
     def __post_init__(self):
         """Validate and set defaults after initialization."""
         # Truncate code snippet if too long
@@ -120,6 +142,10 @@ class CodeProvenance:
             self.code_hash = hashlib.sha256(
                 self.code_snippet.encode('utf-8')
             ).hexdigest()[:16]
+
+        # Auto-populate git SHA if not set
+        if self.git_sha is None:
+            self.git_sha = get_git_sha()
 
     def to_hyperlink(self, include_line: bool = True) -> str:
         """
@@ -213,6 +239,11 @@ class CodeProvenance:
             cycle=data.get('cycle'),
             task_id=data.get('task_id'),
             analysis_type=data.get('analysis_type'),
+            seed=data.get('seed'),
+            git_sha=data.get('git_sha'),
+            model=data.get('model'),
+            temperature=data.get('temperature'),
+            data_hash=data.get('data_hash'),
         )
 
     @classmethod

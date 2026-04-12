@@ -10,7 +10,7 @@ import time
 import uuid
 import json
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from kosmos.agents.base import BaseAgent, AgentMessage, MessageType, AgentStatus
 from kosmos.core.llm import get_client
@@ -106,7 +106,7 @@ class ExperimentDesignerAgent(BaseAgent):
 
         logger.info(f"Initialized ExperimentDesignerAgent {self.agent_id}")
 
-    def execute(self, message: AgentMessage) -> AgentMessage:
+    def execute(self, message):
         """
         Execute agent task from message.
 
@@ -896,7 +896,7 @@ Return ONLY a JSON object with suggested enhancements (keep it concise).
                     status=ExperimentStatus.CREATED.value,
                     protocol=protocol.to_dict(),
                     domain=protocol.domain,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
 
                 session.add(db_experiment)

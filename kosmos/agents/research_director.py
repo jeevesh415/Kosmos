@@ -13,7 +13,7 @@ Async Architecture (Issue #66 fix):
 """
 
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import asyncio
 import concurrent.futures
@@ -182,6 +182,7 @@ class ResearchDirectorAgent(BaseAgent):
 
         # Error recovery tracking
         self._consecutive_errors: int = 0
+        self._actions_this_iteration: int = 0
         self._error_history: List[Dict[str, Any]] = []
         self._last_error_time: Optional[datetime] = None
 
@@ -373,10 +374,9 @@ class ResearchDirectorAgent(BaseAgent):
 
     @contextmanager
     def _workflow_context(self):
-        """Context manager for thread-safe workflow access (sync version, not used with async)."""
-        # Note: This is only for backwards compatibility with sync code
-        # Async code should use the async lock directly
-        yield self.workflow
+        """Context manager for thread-safe workflow access (sync version)."""
+        with self._workflow_lock_sync:
+            yield self.workflow
 
     # Async context manager helpers - use asyncio.Lock directly in async code
     # Example: async with self._research_plan_lock: ...
@@ -565,7 +565,7 @@ class ResearchDirectorAgent(BaseAgent):
     # MESSAGE HANDLING
     # ========================================================================
 
-    def process_message(self, message: AgentMessage):
+    async def process_message(self, message: AgentMessage):
         """
         Process incoming message from other agents.
 
@@ -626,7 +626,7 @@ class ResearchDirectorAgent(BaseAgent):
         # Update error tracking
         self.errors_encountered += 1
         self._consecutive_errors += 1
-        self._last_error_time = datetime.utcnow()
+        self._last_error_time = datetime.now(timezone.utc)
 
         # Record in error history
         error_record = {
@@ -671,7 +671,18 @@ class ResearchDirectorAgent(BaseAgent):
                 f"(attempt {self._consecutive_errors + 1})"
             )
 
-            time.sleep(backoff_seconds)
+            # Use asyncio.sleep if an event loop is running to avoid blocking it;
+            # fall back to time.sleep for sync contexts.
+            try:
+                loop = asyncio.get_running_loop()
+                # Schedule the sleep as a task so we don't block the event loop
+                future = asyncio.run_coroutine_threadsafe(
+                    asyncio.sleep(backoff_seconds), loop
+                )
+                future.result(timeout=backoff_seconds + 5)
+            except RuntimeError:
+                # No running event loop — safe to use blocking sleep
+                time.sleep(backoff_seconds)
 
             # Re-evaluate what action to take
             return self.decide_next_action()
@@ -1070,7 +1081,7 @@ class ResearchDirectorAgent(BaseAgent):
         self.pending_requests[message.id] = {
             "agent": "HypothesisGeneratorAgent",
             "action": action,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Track rollout (Issue #58)
@@ -1104,7 +1115,7 @@ class ResearchDirectorAgent(BaseAgent):
         self.pending_requests[message.id] = {
             "agent": "ExperimentDesignerAgent",
             "hypothesis_id": hypothesis_id,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Track rollout (Issue #58)
@@ -1140,7 +1151,7 @@ class ResearchDirectorAgent(BaseAgent):
         self.pending_requests[message.id] = {
             "agent": "Executor",
             "protocol_id": protocol_id,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Track rollout (Issue #58)
@@ -1174,7 +1185,7 @@ class ResearchDirectorAgent(BaseAgent):
         self.pending_requests[message.id] = {
             "agent": "DataAnalystAgent",
             "result_id": result_id,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Track rollout (Issue #58)
@@ -1209,7 +1220,7 @@ class ResearchDirectorAgent(BaseAgent):
         self.pending_requests[message.id] = {
             "agent": "HypothesisRefiner",
             "hypothesis_id": hypothesis_id,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         }
 
         # Track rollout - refinement is part of hypothesis lifecycle (Issue #58)
@@ -1700,7 +1711,7 @@ class ResearchDirectorAgent(BaseAgent):
                 # Build minimal ExperimentResult from DB fields
                 import sys as _sys
                 import platform as _platform
-                _now = datetime.utcnow()
+                _now = datetime.now(timezone.utc)
                 pydantic_result = ExperimentResult(
                     id=db_result.id,
                     experiment_id=db_result.experiment_id,
@@ -1847,7 +1858,7 @@ class ResearchDirectorAgent(BaseAgent):
                             try:
                                 import sys as _sys
                                 import platform as _platform
-                                _now = datetime.utcnow()
+                                _now = datetime.now(timezone.utc)
                                 pydantic_r = ExperimentResult(
                                     id=db_r.id,
                                     experiment_id=db_r.experiment_id,
@@ -2167,10 +2178,17 @@ Provide brief JSON response:
             results = []
             for protocol_id in protocol_ids:
                 # Sequential fallback - use direct call (Issue #76)
-                import asyncio
-                asyncio.get_event_loop().run_until_complete(
-                    self._handle_execute_experiment_action(protocol_id=protocol_id)
-                )
+                try:
+                    loop = asyncio.get_running_loop()
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._handle_execute_experiment_action(protocol_id=protocol_id),
+                        loop
+                    )
+                    future.result(timeout=600)
+                except RuntimeError:
+                    asyncio.run(
+                        self._handle_execute_experiment_action(protocol_id=protocol_id)
+                    )
                 results.append({"protocol_id": protocol_id, "status": "executed"})
             return results
 
@@ -2448,8 +2466,6 @@ Provide a structured, actionable plan in 2-3 paragraphs.
         current_state = self.workflow.current_state
 
         # Action counter for infinite loop prevention (Issue #51)
-        if not hasattr(self, '_actions_this_iteration'):
-            self._actions_this_iteration = 0
         self._actions_this_iteration += 1
 
         if self._actions_this_iteration > MAX_ACTIONS_PER_ITERATION:

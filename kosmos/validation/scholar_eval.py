@@ -105,7 +105,8 @@ class ScholarEvalValidator:
         anthropic_client=None,
         threshold: float = 0.75,
         min_rigor_score: float = 0.70,
-        model: str = _DEFAULT_CLAUDE_SONNET_MODEL
+        model: str = _DEFAULT_CLAUDE_SONNET_MODEL,
+        temperature: float = 0.3
     ):
         """
         Initialize ScholarEval validator.
@@ -115,11 +116,13 @@ class ScholarEvalValidator:
             threshold: Minimum overall score for approval (default: 0.75)
             min_rigor_score: Minimum rigor score required (default: 0.70)
             model: Model to use for scoring
+            temperature: LLM temperature for evaluation
         """
         self.client = anthropic_client
         self.threshold = threshold
         self.min_rigor_score = min_rigor_score
         self.model = model
+        self._temperature = temperature
 
     def evaluate_finding(self, finding: Dict) -> ScholarEvalScore:
         """
@@ -144,7 +147,7 @@ class ScholarEvalValidator:
                 model=self.model,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3  # Consistent evaluation
+                temperature=self._temperature
             )
 
             # Parse LLM response

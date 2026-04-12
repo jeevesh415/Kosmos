@@ -4,12 +4,14 @@ Unit tests for kosmos.orchestration.delegation module.
 Tests:
 - TaskResult and ExecutionSummary dataclasses
 - DelegationManager: task batching, parallel execution, retry logic
+- Agent wiring: RuntimeError when no agents provided
+- Agent routing: mock agents receive correct calls
 """
 
 import pytest
 import asyncio
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from kosmos.orchestration.delegation import (
     TaskResult,
@@ -80,12 +82,74 @@ def sample_context():
 
 
 @pytest.fixture
+def mock_agents():
+    """Create mock agent instances for DelegationManager."""
+    data_analyst = Mock()
+    data_analyst.execute.return_value = {
+        'success': True,
+        'interpretation': {
+            'summary': 'Mock data analysis result',
+            'key_findings': ['finding1'],
+            'overall_assessment': 'Good',
+        }
+    }
+
+    literature_analyzer = Mock()
+    literature_analyzer.execute.return_value = {
+        'status': 'success',
+        'insights': {
+            'corpus_size': 5,
+            'common_themes': ['theme1'],
+            'research_gaps': ['gap1'],
+        }
+    }
+
+    hypothesis_generator = Mock()
+    mock_hyp = Mock()
+    mock_hyp.statement = 'Test hypothesis statement'
+    mock_hyp.testability_score = 0.8
+    mock_response = Mock()
+    mock_response.hypotheses = [mock_hyp]
+    mock_response.generation_time_seconds = 1.5
+    hypothesis_generator.generate_hypotheses.return_value = mock_response
+
+    experiment_designer = Mock()
+    mock_protocol = Mock()
+    mock_protocol.name = 'Test Protocol'
+    mock_design_response = Mock()
+    mock_design_response.protocol = mock_protocol
+    mock_design_response.rigor_score = 0.85
+    mock_design_response.completeness_score = 0.9
+    mock_design_response.feasibility_assessment = 'High'
+    mock_design_response.design_time_seconds = 2.0
+    experiment_designer.design_experiment.return_value = mock_design_response
+
+    return {
+        'data_analyst': data_analyst,
+        'literature_analyzer': literature_analyzer,
+        'hypothesis_generator': hypothesis_generator,
+        'experiment_designer': experiment_designer,
+    }
+
+
+@pytest.fixture
 def delegation_manager():
-    """Create DelegationManager instance."""
+    """Create DelegationManager instance without agents."""
     return DelegationManager(
         max_parallel_tasks=3,
         max_retries=2,
         task_timeout=300
+    )
+
+
+@pytest.fixture
+def delegation_manager_with_agents(mock_agents):
+    """Create DelegationManager instance with mock agents."""
+    return DelegationManager(
+        max_parallel_tasks=3,
+        max_retries=2,
+        task_timeout=300,
+        agents=mock_agents
     )
 
 
@@ -214,6 +278,15 @@ class TestDelegationManagerInit:
         assert 'literature_review' in manager.AGENT_ROUTING
         assert 'hypothesis_generation' in manager.AGENT_ROUTING
 
+    def test_agents_stored(self, mock_agents):
+        """Test that agents dict is stored."""
+        manager = DelegationManager(agents=mock_agents)
+
+        assert 'data_analyst' in manager.agents
+        assert 'literature_analyzer' in manager.agents
+        assert 'hypothesis_generator' in manager.agents
+        assert 'experiment_designer' in manager.agents
+
 
 # ============================================================================
 # Task Batching Tests
@@ -255,72 +328,72 @@ class TestTaskBatching:
 
 
 # ============================================================================
-# Task Execution Tests
+# Task Execution Tests — with agents
 # ============================================================================
 
 class TestTaskExecution:
-    """Tests for task execution."""
+    """Tests for task execution with mock agents."""
 
     @pytest.mark.asyncio
-    async def test_execute_data_analysis(self, delegation_manager, sample_context):
-        """Test executing data analysis task."""
+    async def test_execute_data_analysis(self, delegation_manager_with_agents, sample_context):
+        """Test executing data analysis task with agent."""
         task = {
             'id': 1,
             'type': 'data_analysis',
             'description': 'Test analysis'
         }
 
-        result = await delegation_manager._execute_data_analysis(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_data_analysis(task, 1, sample_context)
 
         assert result['finding_id'] == 'cycle1_task1'
         assert 'statistics' in result
         assert result['evidence_type'] == 'data_analysis'
 
     @pytest.mark.asyncio
-    async def test_execute_literature_review(self, delegation_manager, sample_context):
-        """Test executing literature review task."""
+    async def test_execute_literature_review(self, delegation_manager_with_agents, sample_context):
+        """Test executing literature review task with agent."""
         task = {
             'id': 2,
             'type': 'literature_review',
             'description': 'Review papers'
         }
 
-        result = await delegation_manager._execute_literature_review(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_literature_review(task, 1, sample_context)
 
         assert result['finding_id'] == 'cycle1_task2'
-        assert 'papers_reviewed' in result['statistics']
+        assert 'corpus_size' in result['statistics']
         assert result['evidence_type'] == 'literature_review'
 
     @pytest.mark.asyncio
-    async def test_execute_hypothesis_generation(self, delegation_manager, sample_context):
-        """Test executing hypothesis generation task."""
+    async def test_execute_hypothesis_generation(self, delegation_manager_with_agents, sample_context):
+        """Test executing hypothesis generation task with agent."""
         task = {
             'id': 3,
             'type': 'hypothesis_generation',
             'description': 'Generate hypotheses'
         }
 
-        result = await delegation_manager._execute_hypothesis_generation(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_hypothesis_generation(task, 1, sample_context)
 
         assert result['finding_id'] == 'cycle1_task3'
         assert 'hypotheses_generated' in result['statistics']
 
     @pytest.mark.asyncio
-    async def test_execute_generic_task(self, delegation_manager, sample_context):
-        """Test executing generic/unknown task type."""
+    async def test_execute_experiment_design(self, delegation_manager_with_agents, sample_context):
+        """Test executing experiment design via generic handler."""
         task = {
             'id': 4,
-            'type': 'unknown_type',
-            'description': 'Unknown task'
+            'type': 'experiment_design',
+            'description': 'Design experiment'
         }
 
-        result = await delegation_manager._execute_generic_task(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_generic_task(task, 1, sample_context)
 
         assert result['finding_id'] == 'cycle1_task4'
-        assert result['evidence_type'] == 'unknown_type'
+        assert result['evidence_type'] == 'experiment_design'
 
     @pytest.mark.asyncio
-    async def test_execute_task_routing(self, delegation_manager, sample_context):
+    async def test_execute_task_routing(self, delegation_manager_with_agents, sample_context):
         """Test task routing to correct executor."""
         task = {
             'id': 1,
@@ -328,9 +401,49 @@ class TestTaskExecution:
             'description': 'Test'
         }
 
-        result = await delegation_manager._execute_task(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_task(task, 1, sample_context)
 
         assert result['evidence_type'] == 'data_analysis'
+
+
+# ============================================================================
+# No-Agent RuntimeError Tests
+# ============================================================================
+
+class TestNoAgentErrors:
+    """Tests that RuntimeError is raised when no agents are provided."""
+
+    @pytest.mark.asyncio
+    async def test_data_analysis_no_agent(self, delegation_manager, sample_context):
+        """Test RuntimeError for data_analysis without agent."""
+        task = {'id': 1, 'type': 'data_analysis', 'description': 'Test'}
+
+        with pytest.raises(RuntimeError, match="No 'data_analyst' agent was provided"):
+            await delegation_manager._execute_data_analysis(task, 1, sample_context)
+
+    @pytest.mark.asyncio
+    async def test_literature_review_no_agent(self, delegation_manager, sample_context):
+        """Test RuntimeError for literature_review without agent."""
+        task = {'id': 2, 'type': 'literature_review', 'description': 'Test'}
+
+        with pytest.raises(RuntimeError, match="No 'literature_analyzer' agent was provided"):
+            await delegation_manager._execute_literature_review(task, 1, sample_context)
+
+    @pytest.mark.asyncio
+    async def test_hypothesis_generation_no_agent(self, delegation_manager, sample_context):
+        """Test RuntimeError for hypothesis_generation without agent."""
+        task = {'id': 3, 'type': 'hypothesis_generation', 'description': 'Test'}
+
+        with pytest.raises(RuntimeError, match="No 'hypothesis_generator' agent was provided"):
+            await delegation_manager._execute_hypothesis_generation(task, 1, sample_context)
+
+    @pytest.mark.asyncio
+    async def test_generic_task_no_agents(self, delegation_manager, sample_context):
+        """Test RuntimeError for unknown task type without any agents."""
+        task = {'id': 4, 'type': 'unknown_type', 'description': 'Test'}
+
+        with pytest.raises(RuntimeError, match="No agents were provided"):
+            await delegation_manager._execute_generic_task(task, 1, sample_context)
 
 
 # ============================================================================
@@ -341,7 +454,7 @@ class TestRetryLogic:
     """Tests for retry logic."""
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_success(self, delegation_manager, sample_context):
+    async def test_execute_with_retry_success(self, delegation_manager_with_agents, sample_context):
         """Test successful execution without retry."""
         task = {
             'id': 1,
@@ -349,7 +462,7 @@ class TestRetryLogic:
             'description': 'Test'
         }
 
-        result = await delegation_manager._execute_task_with_retry(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_task_with_retry(task, 1, sample_context)
 
         assert result.status == 'completed'
         assert result.retry_count == 0
@@ -402,20 +515,20 @@ class TestBatchExecution:
     """Tests for batch execution."""
 
     @pytest.mark.asyncio
-    async def test_execute_batch_success(self, delegation_manager, sample_context):
+    async def test_execute_batch_success(self, delegation_manager_with_agents, sample_context):
         """Test successful batch execution."""
         batch = [
             {'id': 1, 'type': 'data_analysis', 'description': 'Task 1'},
             {'id': 2, 'type': 'data_analysis', 'description': 'Task 2'}
         ]
 
-        results = await delegation_manager._execute_batch(batch, 1, sample_context)
+        results = await delegation_manager_with_agents._execute_batch(batch, 1, sample_context)
 
         assert len(results) == 2
         assert all(r.status == 'completed' for r in results)
 
     @pytest.mark.asyncio
-    async def test_execute_batch_partial_failure(self, delegation_manager, sample_context):
+    async def test_execute_batch_partial_failure(self, delegation_manager_with_agents, sample_context):
         """Test batch execution with partial failure."""
         batch = [
             {'id': 1, 'type': 'data_analysis', 'description': 'Task 1'},
@@ -423,7 +536,7 @@ class TestBatchExecution:
         ]
 
         # Make second task fail
-        original_execute = delegation_manager._execute_task_with_retry
+        original_execute = delegation_manager_with_agents._execute_task_with_retry
 
         async def mock_execute(task, cycle, context):
             if task['id'] == 2:
@@ -435,8 +548,8 @@ class TestBatchExecution:
                 )
             return await original_execute(task, cycle, context)
 
-        with patch.object(delegation_manager, '_execute_task_with_retry', side_effect=mock_execute):
-            results = await delegation_manager._execute_batch(batch, 1, sample_context)
+        with patch.object(delegation_manager_with_agents, '_execute_task_with_retry', side_effect=mock_execute):
+            results = await delegation_manager_with_agents._execute_batch(batch, 1, sample_context)
 
         assert len(results) == 2
         completed = [r for r in results if r.status == 'completed']
@@ -454,9 +567,9 @@ class TestPlanExecution:
     """Tests for plan execution."""
 
     @pytest.mark.asyncio
-    async def test_execute_plan_success(self, delegation_manager, sample_plan, sample_context):
+    async def test_execute_plan_success(self, delegation_manager_with_agents, sample_plan, sample_context):
         """Test successful plan execution."""
-        result = await delegation_manager.execute_plan(sample_plan, 1, sample_context)
+        result = await delegation_manager_with_agents.execute_plan(sample_plan, 1, sample_context)
 
         assert 'completed_tasks' in result
         assert 'failed_tasks' in result
@@ -478,9 +591,9 @@ class TestPlanExecution:
         assert result['execution_summary']['total_tasks'] == 0
 
     @pytest.mark.asyncio
-    async def test_execute_plan_tracks_time(self, delegation_manager, sample_plan, sample_context):
+    async def test_execute_plan_tracks_time(self, delegation_manager_with_agents, sample_plan, sample_context):
         """Test that plan execution tracks time."""
-        result = await delegation_manager.execute_plan(sample_plan, 1, sample_context)
+        result = await delegation_manager_with_agents.execute_plan(sample_plan, 1, sample_context)
 
         summary = result['execution_summary']
         assert summary['total_execution_time'] >= 0
@@ -511,20 +624,20 @@ class TestDelegationEdgeCases:
     """Tests for edge cases."""
 
     @pytest.mark.asyncio
-    async def test_missing_task_id(self, delegation_manager, sample_context):
+    async def test_missing_task_id(self, delegation_manager_with_agents, sample_context):
         """Test handling task without id."""
         task = {
             'type': 'data_analysis',
             'description': 'Task without ID'
         }
 
-        result = await delegation_manager._execute_task_with_retry(task, 1, sample_context)
+        result = await delegation_manager_with_agents._execute_task_with_retry(task, 1, sample_context)
 
         assert result.task_id == 0  # Default
 
     @pytest.mark.asyncio
-    async def test_missing_task_type(self, delegation_manager, sample_context):
-        """Test handling task without type."""
+    async def test_missing_task_type_no_agents(self, delegation_manager, sample_context):
+        """Test handling task without type raises RuntimeError when no agents."""
         task = {
             'id': 1,
             'description': 'Task without type'
@@ -532,16 +645,16 @@ class TestDelegationEdgeCases:
 
         result = await delegation_manager._execute_task_with_retry(task, 1, sample_context)
 
-        # Should use generic executor
-        assert result.status == 'completed'
+        # Should fail since generic executor raises RuntimeError without agents
+        assert result.status == 'failed'
 
     @pytest.mark.asyncio
-    async def test_concurrent_plan_execution(self, delegation_manager, sample_plan, sample_context):
+    async def test_concurrent_plan_execution(self, delegation_manager_with_agents, sample_plan, sample_context):
         """Test that plan execution handles concurrency correctly."""
         # Execute same plan multiple times concurrently
         results = await asyncio.gather(
-            delegation_manager.execute_plan(sample_plan, 1, sample_context),
-            delegation_manager.execute_plan(sample_plan, 2, sample_context)
+            delegation_manager_with_agents.execute_plan(sample_plan, 1, sample_context),
+            delegation_manager_with_agents.execute_plan(sample_plan, 2, sample_context)
         )
 
         assert len(results) == 2

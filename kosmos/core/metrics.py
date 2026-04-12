@@ -11,12 +11,13 @@ Tracks:
 """
 
 from typing import Dict, Any, List, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import threading
 import logging
 from enum import Enum
 
+from kosmos.core.pricing import get_model_cost
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class BudgetAlert:
         """
         self.threshold_percent = threshold_percent
         self.message = message
-        self.triggered_at = triggered_at or datetime.utcnow()
+        self.triggered_at = triggered_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -120,7 +121,7 @@ class MetricsCollector:
     def __init__(self):
         """Initialize metrics collector."""
         self._lock = threading.Lock()
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
         # API metrics
         self.api_calls = 0
@@ -157,7 +158,7 @@ class MetricsCollector:
         self.budget_limit_usd: Optional[float] = None
         self.budget_limit_requests: Optional[int] = None
         self.budget_period = BudgetPeriod.DAILY
-        self.budget_period_start = datetime.utcnow()
+        self.budget_period_start = datetime.now(timezone.utc)
         self.budget_alert_thresholds = [50.0, 75.0, 90.0, 100.0]  # Percentage thresholds
         self.budget_alerts: List[BudgetAlert] = []
         self.alert_callbacks: List[Callable[[BudgetAlert], None]] = []
@@ -201,7 +202,7 @@ class MetricsCollector:
 
             # Store in history
             self.api_call_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "model": model,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -226,10 +227,12 @@ class MetricsCollector:
             error_rate = (self.api_errors / self.api_calls
                         if self.api_calls > 0 else 0)
 
-            # Estimate cost (Claude 3.5 Sonnet pricing)
-            input_cost = (self.total_input_tokens / 1_000_000) * 3.0
-            output_cost = (self.total_output_tokens / 1_000_000) * 15.0
-            total_cost = input_cost + output_cost
+            # Estimate cost using canonical pricing (default Sonnet)
+            total_cost = get_model_cost(
+                "claude-sonnet-4-5",
+                self.total_input_tokens,
+                self.total_output_tokens
+            )
 
             return {
                 "total_calls": self.api_calls,
@@ -264,7 +267,7 @@ class MetricsCollector:
                 "experiment_id": experiment_id,
                 "experiment_type": experiment_type,
                 "status": "running",
-                "start_time": datetime.utcnow().isoformat(),
+                "start_time": datetime.now(timezone.utc).isoformat(),
                 "end_time": None,
                 "duration_seconds": None
             })
@@ -295,7 +298,7 @@ class MetricsCollector:
             for exp in reversed(self.experiment_history):
                 if exp["experiment_id"] == experiment_id:
                     exp["status"] = status
-                    exp["end_time"] = datetime.utcnow().isoformat()
+                    exp["end_time"] = datetime.now(timezone.utc).isoformat()
                     exp["duration_seconds"] = duration_seconds
                     break
 
@@ -382,7 +385,7 @@ class MetricsCollector:
 
             # Store in history
             self.cache_hit_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "cache_type": cache_type,
                 "event_type": "hit"
             })
@@ -403,7 +406,7 @@ class MetricsCollector:
 
             # Store in history
             self.cache_hit_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "cache_type": cache_type,
                 "event_type": "miss"
             })
@@ -494,10 +497,12 @@ class MetricsCollector:
                         hits = claude_cache_stats.get('hits', 0)
 
                         if hits > 0:
-                            # Claude 3.5 Sonnet pricing: $3/M input, $15/M output
-                            input_saved = (avg_input_tokens * hits / 1_000_000) * 3.0
-                            output_saved = (avg_output_tokens * hits / 1_000_000) * 15.0
-                            total_saved = input_saved + output_saved
+                            # Estimate savings using canonical pricing
+                            total_saved = get_model_cost(
+                                "claude-sonnet-4-5",
+                                avg_input_tokens * hits,
+                                avg_output_tokens * hits
+                            )
 
                             base_stats['estimated_cost_saved_usd'] = round(total_saved, 2)
                             base_stats['cache_efficiency'] = 'high' if cache_hit_rate > 30 else 'moderate' if cache_hit_rate > 10 else 'low'
@@ -532,7 +537,7 @@ class MetricsCollector:
             dict: System statistics
         """
         with self._lock:
-            uptime = (datetime.utcnow() - self.start_time).total_seconds()
+            uptime = (datetime.now(timezone.utc) - self.start_time).total_seconds()
 
             return {
                 "start_time": self.start_time.isoformat(),
@@ -584,7 +589,7 @@ class MetricsCollector:
             self.budget_limit_usd = limit_usd
             self.budget_limit_requests = limit_requests
             self.budget_period = period
-            self.budget_period_start = datetime.utcnow()
+            self.budget_period_start = datetime.now(timezone.utc)
 
             if alert_thresholds is not None:
                 self.budget_alert_thresholds = sorted(alert_thresholds)
@@ -719,7 +724,7 @@ class MetricsCollector:
 
     def _check_period_reset(self):
         """Check if budget period should be reset."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         time_since_start = now - self.budget_period_start
 
         should_reset = False
@@ -753,11 +758,8 @@ class MetricsCollector:
         total_input = sum(call.get("input_tokens", 0) for call in period_calls)
         total_output = sum(call.get("output_tokens", 0) for call in period_calls)
 
-        # Calculate cost (Claude 3.5 Sonnet pricing)
-        input_cost = (total_input / 1_000_000) * 3.0
-        output_cost = (total_output / 1_000_000) * 15.0
-
-        return input_cost + output_cost
+        # Calculate cost using canonical pricing (default Sonnet)
+        return get_model_cost("claude-sonnet-4-5", total_input, total_output)
 
     def _calculate_period_requests(self) -> int:
         """Calculate API requests for current budget period."""
@@ -843,7 +845,7 @@ class MetricsCollector:
         Returns:
             dict: Recent activity summary
         """
-        cutoff_time = datetime.utcnow() - timedelta(minutes=minutes)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=minutes)
 
         with self._lock:
             # Recent API calls
@@ -900,7 +902,7 @@ class MetricsCollector:
             dict: Complete metrics dump
         """
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "statistics": self.get_statistics(),
             "recent_activity": self.get_recent_activity(),
             "api_call_history": self.api_call_history[-100:],  # Last 100

@@ -355,8 +355,8 @@ if (length(.kosmos_results) > 0) {{
             # Clean up container
             try:
                 container.remove(force=True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"R executor container cleanup failed: {e}")
 
     def _parse_results(self, stdout: str) -> Dict[str, Any]:
         """Parse JSON results from R output."""

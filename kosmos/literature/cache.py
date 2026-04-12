@@ -8,7 +8,7 @@ and respect rate limits.
 import hashlib
 import json
 import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Dict
 import logging
@@ -100,7 +100,7 @@ class LiteratureCache:
             True if expired, False otherwise
         """
         expiry = cached_at + timedelta(hours=self.ttl_hours)
-        return datetime.utcnow() > expiry
+        return datetime.now(timezone.utc) > expiry
 
     def get(self, source: str, endpoint: str, params: Dict[str, Any]) -> Optional[Any]:
         """
@@ -160,7 +160,7 @@ class LiteratureCache:
                 'endpoint': endpoint,
                 'params': params,
                 'response': response,
-                'cached_at': datetime.utcnow()
+                'cached_at': datetime.now(timezone.utc)
             }
 
             with open(cache_path, 'wb') as f:

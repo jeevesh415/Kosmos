@@ -91,8 +91,8 @@ class PaperVectorDB:
             try:
                 self.client.delete_collection(name=collection_name)
                 logger.info(f"Reset collection: {collection_name}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Collection reset deletion failed: {e}")
 
         self.collection = self.client.get_or_create_collection(
             name=collection_name,

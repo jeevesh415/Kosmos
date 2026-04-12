@@ -79,7 +79,8 @@ class PlanReviewerAgent:
         anthropic_client=None,
         model: str = _DEFAULT_CLAUDE_SONNET_MODEL,
         min_average_score: float = 7.0,
-        min_dimension_score: float = 5.0
+        min_dimension_score: float = 5.0,
+        temperature: float = 0.3
     ):
         """
         Initialize Plan Reviewer Agent.
@@ -89,11 +90,13 @@ class PlanReviewerAgent:
             model: Model to use for review
             min_average_score: Minimum average score for approval
             min_dimension_score: Minimum score on any single dimension
+            temperature: LLM temperature for review evaluation
         """
         self.client = anthropic_client
         self.model = model
         self.min_average_score = min_average_score
         self.min_dimension_score = min_dimension_score
+        self._temperature = temperature
 
     def review_plan(
         self,
@@ -123,7 +126,7 @@ class PlanReviewerAgent:
                 model=self.model,
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3  # More consistent for evaluation
+                temperature=self._temperature
             )
 
             # Parse review

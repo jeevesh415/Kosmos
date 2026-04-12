@@ -398,7 +398,7 @@ class LLMProvider(ABC):
         self.request_count += 1
         self.total_input_tokens += usage.input_tokens
         self.total_output_tokens += usage.output_tokens
-        if usage.cost_usd:
+        if usage.cost_usd is not None:
             self.total_cost_usd += usage.cost_usd
 
     def reset_usage_stats(self):

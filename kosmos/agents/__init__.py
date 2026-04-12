@@ -13,7 +13,17 @@ Gap 3 Enhancement:
 """
 
 from .skill_loader import SkillLoader
+from .data_analyst import DataAnalystAgent
+from .hypothesis_generator import HypothesisGeneratorAgent
+from .experiment_designer import ExperimentDesignerAgent
+from .literature_analyzer import LiteratureAnalyzerAgent
+from .research_director import ResearchDirectorAgent
 
 __all__ = [
     "SkillLoader",
+    "DataAnalystAgent",
+    "HypothesisGeneratorAgent",
+    "ExperimentDesignerAgent",
+    "LiteratureAnalyzerAgent",
+    "ResearchDirectorAgent",
 ]

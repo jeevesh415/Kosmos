@@ -7,7 +7,7 @@ that can be used for testing without requiring Neo4j.
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -137,7 +137,7 @@ class InMemoryWorldModel(WorldModelStorage, EntityManager):
 
         export_data = {
             "version": "1.0",
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "source": "kosmos",
             "mode": "in_memory",
             "project": project,

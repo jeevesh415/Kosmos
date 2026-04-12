@@ -411,5 +411,5 @@ class DockerManager:
         """Cleanup on deletion."""
         try:
             self.client.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Docker client close during cleanup failed: {e}")

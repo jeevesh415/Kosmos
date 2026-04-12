@@ -34,40 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 from kosmos.config import _DEFAULT_CLAUDE_SONNET_MODEL, _DEFAULT_CLAUDE_HAIKU_MODEL
-
-# Model pricing per 1M tokens (input, output) in USD
-# Updated pricing as of November 2025
-MODEL_PRICING: Dict[str, tuple] = {
-    # Anthropic Claude 4.5 (current)
-    "claude-sonnet-4-5": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
-    "claude-opus-4-5": (15.0, 75.0),
-    # Anthropic Claude 3.5 (legacy)
-    "claude-3-5-sonnet-20241022": (3.0, 15.0),
-    "claude-3-5-haiku-20241022": (1.0, 5.0),
-    # Anthropic Claude 3 (legacy)
-    "claude-3-opus-20240229": (15.0, 75.0),
-    "claude-3-sonnet-20240229": (3.0, 15.0),
-    "claude-3-haiku-20240307": (0.25, 1.25),
-    # OpenAI
-    "gpt-4-turbo": (10.0, 30.0),
-    "gpt-4-turbo-preview": (10.0, 30.0),
-    "gpt-4": (30.0, 60.0),
-    "gpt-4-32k": (60.0, 120.0),
-    "gpt-3.5-turbo": (0.5, 1.5),
-    "gpt-4o": (5.0, 15.0),
-    "gpt-4o-mini": (0.15, 0.6),
-    # DeepSeek
-    "deepseek/deepseek-chat": (0.14, 0.28),
-    "deepseek/deepseek-coder": (0.14, 0.28),
-    # Ollama (free, local)
-    "ollama/llama3.1": (0.0, 0.0),
-    "ollama/llama3.1:8b": (0.0, 0.0),
-    "ollama/llama3.1:70b": (0.0, 0.0),
-    "ollama/mistral": (0.0, 0.0),
-    "ollama/codellama": (0.0, 0.0),
-    "ollama/phi3": (0.0, 0.0),
-}
+from kosmos.core.pricing import MODEL_PRICING, get_model_cost
 
 
 class LiteLLMProvider(LLMProvider):
@@ -176,19 +143,7 @@ class LiteLLMProvider(LLMProvider):
 
     def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Estimate cost based on model pricing."""
-        # Try exact model match
-        if self.model in MODEL_PRICING:
-            input_price, output_price = MODEL_PRICING[self.model]
-        # Try base model name (without tags like :8b)
-        elif self.model.split(':')[0] in MODEL_PRICING:
-            input_price, output_price = MODEL_PRICING[self.model.split(':')[0]]
-        # Default: free (local models or unknown)
-        else:
-            input_price, output_price = (0.0, 0.0)
-
-        cost = (input_tokens / 1_000_000) * input_price + \
-               (output_tokens / 1_000_000) * output_price
-        return cost
+        return get_model_cost(self.model, input_tokens, output_tokens)
 
     def _build_messages(
         self,

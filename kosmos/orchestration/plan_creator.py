@@ -85,7 +85,8 @@ class PlanCreatorAgent:
         self,
         anthropic_client=None,
         model: str = _DEFAULT_CLAUDE_SONNET_MODEL,
-        default_num_tasks: int = 10
+        default_num_tasks: int = 10,
+        temperature: float = 0.7
     ):
         """
         Initialize Plan Creator Agent.
@@ -94,10 +95,12 @@ class PlanCreatorAgent:
             anthropic_client: Anthropic client for LLM-based planning
             model: Model to use for plan generation
             default_num_tasks: Default number of tasks per cycle
+            temperature: LLM temperature for plan generation
         """
         self.client = anthropic_client
         self.model = model
         self.default_num_tasks = default_num_tasks
+        self._temperature = temperature
 
     def _get_exploration_ratio(self, cycle: int) -> float:
         """
@@ -156,7 +159,7 @@ class PlanCreatorAgent:
                 model=self.model,
                 max_tokens=4000,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7  # Allow creativity
+                temperature=self._temperature
             )
 
             # Parse response

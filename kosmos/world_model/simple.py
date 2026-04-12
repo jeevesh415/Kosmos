@@ -24,8 +24,9 @@ See: https://refactoring.guru/design-patterns/adapter
 
 import json
 import logging
+import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,26 @@ from kosmos.world_model.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Regex for valid Neo4j label/relationship type names (alphanumeric + underscore)
+_SAFE_CYPHER_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _sanitize_cypher_label(label: str) -> str:
+    """Validate and return a safe Neo4j label or relationship type name.
+
+    Neo4j labels cannot be parameterized, so we must validate them
+    before string interpolation into Cypher queries.
+
+    Raises:
+        ValueError: If the label contains characters that could allow Cypher injection.
+    """
+    if not _SAFE_CYPHER_LABEL_RE.match(label):
+        raise ValueError(
+            f"Invalid Cypher label/type: {label!r}. "
+            "Must match [A-Za-z_][A-Za-z0-9_]*."
+        )
+    return label
 
 
 class Neo4jWorldModel(WorldModelStorage, EntityManager):
@@ -172,20 +193,12 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         """Add Author entity using existing graph methods."""
         name = entity.properties.get("name", entity.id)
         affiliation = entity.properties.get("affiliation")
-        email = entity.properties.get("email")
-
-        metadata = {
-            "confidence": entity.confidence,
-            "project": entity.project,
-            "created_by": entity.created_by,
-            "entity_id": entity.id,
-        }
+        h_index = entity.properties.get("h_index")
 
         node = self.graph.create_author(
             name=name,
             affiliation=affiliation,
-            email=email,
-            metadata=metadata,
+            h_index=h_index,
             merge=merge
         )
 
@@ -197,18 +210,10 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         description = entity.properties.get("description")
         category = entity.properties.get("category")
 
-        metadata = {
-            "confidence": entity.confidence,
-            "project": entity.project,
-            "created_by": entity.created_by,
-            "entity_id": entity.id,
-        }
-
         node = self.graph.create_method(
             name=name,
             description=description,
             category=category,
-            metadata=metadata,
             merge=merge
         )
 
@@ -225,11 +230,14 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
             logger.debug(f"Neo4j not connected, skipping _add_generic_entity for {entity.id}")
             return entity.id
 
+        # Sanitize entity type before Cypher interpolation (labels can't be parameterized)
+        safe_type = _sanitize_cypher_label(entity.type)
+
         # Build Cypher query to create or merge node
         if merge:
             # MERGE creates if not exists, matches if exists
             cypher = f"""
-            MERGE (n:{entity.type} {{entity_id: $entity_id}})
+            MERGE (n:{safe_type} {{entity_id: $entity_id}})
             SET n.properties = $properties,
                 n.confidence = $confidence,
                 n.project = $project,
@@ -242,7 +250,7 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         else:
             # CREATE always creates new node
             cypher = f"""
-            CREATE (n:{entity.type} {{entity_id: $entity_id}})
+            CREATE (n:{safe_type} {{entity_id: $entity_id}})
             SET n.properties = $properties,
                 n.confidence = $confidence,
                 n.project = $project,
@@ -505,11 +513,14 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
             logger.debug(f"Neo4j not connected, skipping _add_generic_relationship for {relationship.id}")
             return relationship.id
 
+        # Sanitize relationship type before Cypher interpolation
+        safe_type = _sanitize_cypher_label(relationship.type)
+
         cypher = f"""
         MATCH (source), (target)
         WHERE (source.entity_id = $source_id OR source.paper_id = $source_id)
         AND (target.entity_id = $target_id OR target.paper_id = $target_id)
-        CREATE (source)-[r:{relationship.type}]->(target)
+        CREATE (source)-[r:{safe_type}]->(target)
         SET r.relationship_id = $relationship_id,
             r.properties = $properties,
             r.confidence = $confidence,
@@ -680,8 +691,8 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         # Get statistics
         stats = self.get_statistics(project)
 
-        # Build project filter clause
-        project_filter = f"WHERE n.project = '{project}'" if project else ""
+        # Build project filter clause using parameterized query
+        project_filter = "WHERE n.project = $project" if project else ""
 
         # Get all entities
         entity_cypher = f"""
@@ -690,7 +701,8 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         RETURN n, labels(n) as labels
         """
 
-        entity_results = self.graph.graph.run(entity_cypher).data()
+        query_params = {"project": project} if project else {}
+        entity_results = self.graph.graph.run(entity_cypher, **query_params).data()
 
         entities = []
         for row in entity_results:
@@ -846,11 +858,12 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
                 "storage_size_mb": 0.0,
             }
 
-        project_filter = f"WHERE n.project = '{project}'" if project else ""
+        project_filter = "WHERE n.project = $project" if project else ""
+        stats_params = {"project": project} if project else {}
 
         # Total entity count
         cypher_total = f"MATCH (n) {project_filter} RETURN count(n) as count"
-        total_result = self.graph.graph.run(cypher_total).data()
+        total_result = self.graph.graph.run(cypher_total, **stats_params).data()
         entity_count = total_result[0]["count"] if total_result else 0
 
         # Entity type breakdown
@@ -859,7 +872,7 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         {project_filter}
         RETURN labels(n) as labels, count(*) as count
         """
-        type_results = self.graph.graph.run(cypher_types).data()
+        type_results = self.graph.graph.run(cypher_types, **stats_params).data()
 
         entity_types = {}
         for row in type_results:
@@ -952,8 +965,8 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
                     # Estimate: 500 bytes/node + 200 bytes/relationship + 20% overhead
                     estimated_bytes = (nodes * 500 + rels * 200) * 1.2
                     return round(estimated_bytes / (1024 * 1024), 2)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Neo4j storage size estimation query failed: {e}")
 
         except Exception as e:
             logger.debug(f"Could not determine Neo4j storage size: {e}")
@@ -1049,7 +1062,7 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
         ann_dict = {
             'text': annotation.text,
             'created_by': annotation.created_by,
-            'created_at': (annotation.created_at or datetime.utcnow()).isoformat(),
+            'created_at': (annotation.created_at or datetime.now(timezone.utc)).isoformat(),
             'annotation_id': str(uuid.uuid4())  # Unique ID for each annotation
         }
 
@@ -1070,7 +1083,7 @@ class Neo4jWorldModel(WorldModelStorage, EntityManager):
                 query,
                 entity_id=entity_id,
                 annotation=json.dumps(ann_dict),
-                updated_at=datetime.utcnow().isoformat()
+                updated_at=datetime.now(timezone.utc).isoformat()
             ).data()
 
             if result and result[0]['updated'] > 0:

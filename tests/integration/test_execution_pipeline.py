@@ -99,7 +99,7 @@ class TestEndToEndPipeline:
         assert "ttest_comparison" in code
 
         # Step 2: Execute code
-        executor = CodeExecutor(max_retries=1)
+        executor = CodeExecutor(max_retries=1, use_sandbox=False)
         execution_result = executor.execute_with_data(code, sample_data_file)
 
         assert execution_result.success is True
@@ -128,11 +128,11 @@ class TestEndToEndPipeline:
         generator = ExperimentCodeGenerator(use_templates=True, use_llm=False)
         code = generator.generate(ttest_protocol)
 
-        # Execute using convenience function
+        # Execute using convenience function (always validates safety)
         result = execute_protocol_code(
             code,
             data_path=sample_data_file,
-            validate_safety=True
+            use_sandbox=False
         )
 
         assert result['success'] is True
@@ -148,7 +148,7 @@ class TestEndToEndPipeline:
         result = execute_protocol_code(
             code,
             data_path="/nonexistent/path.csv",
-            validate_safety=True
+            use_sandbox=False
         )
 
         # Should fail gracefully
@@ -166,7 +166,7 @@ class TestTemplatePipeline:
         generator = ExperimentCodeGenerator(use_templates=True, use_llm=False)
         code = generator.generate(ttest_protocol)
 
-        result = execute_protocol_code(code, sample_data_file, validate_safety=False)
+        result = execute_protocol_code(code, sample_data_file, use_sandbox=False)
 
         assert result['success'] is True
         assert result['return_value'] is not None
@@ -238,13 +238,13 @@ if random.random() > 0.9:  # High chance of success
 results = {'value': 42}
 """
 
-        result = execute_protocol_code(code, max_retries=5, validate_safety=False)
+        result = execute_protocol_code(code, max_retries=5, use_sandbox=False)
 
         # Should eventually succeed or exhaust retries
         assert isinstance(result, dict)
 
     def test_validation_prevents_unsafe_code(self, ttest_protocol):
-        """Test validation prevents unsafe code execution."""
+        """Test validation prevents unsafe code execution (always-on validation)."""
 
         unsafe_code = """
 import os
@@ -252,7 +252,7 @@ os.system('rm -rf /')
 results = {}
 """
 
-        result = execute_protocol_code(unsafe_code, validate_safety=True)
+        result = execute_protocol_code(unsafe_code, use_sandbox=False)
 
         assert result['success'] is False
         assert 'validation_errors' in result
@@ -277,7 +277,7 @@ df = pd.read_csv('{sample_data_file}')
 {code}
 """
 
-        executor = CodeExecutor()
+        executor = CodeExecutor(use_sandbox=False)
         result = executor.execute(code_with_data)
 
         assert result.success is True
@@ -289,7 +289,7 @@ df = pd.read_csv('{sample_data_file}')
         # Generate and execute
         generator = ExperimentCodeGenerator(use_templates=True, use_llm=False)
         code = generator.generate(ttest_protocol)
-        execution_result = execute_protocol_code(code, sample_data_file, validate_safety=False)
+        execution_result = execute_protocol_code(code, sample_data_file, use_sandbox=False)
 
         # Collect
         collector = ResultCollector(store_in_db=False)
@@ -310,7 +310,7 @@ class TestStatisticalPipeline:
         generator = ExperimentCodeGenerator(use_templates=True, use_llm=False)
         code = generator.generate(ttest_protocol)
 
-        result = execute_protocol_code(code, sample_data_file, validate_safety=False)
+        result = execute_protocol_code(code, sample_data_file, use_sandbox=False)
 
         # Should have computed statistics
         if result['success'] and result['return_value']:
@@ -330,7 +330,7 @@ class TestPipelinePerformance:
 
         generator = ExperimentCodeGenerator(use_templates=True, use_llm=False)
         code = generator.generate(ttest_protocol)
-        result = execute_protocol_code(code, sample_data_file, validate_safety=True)
+        result = execute_protocol_code(code, sample_data_file, use_sandbox=False)
 
         duration = time.time() - start
 
@@ -367,8 +367,7 @@ class TestSandboxPipeline:
         result = execute_protocol_code(
             code,
             data_path=sample_data_file,
-            use_sandbox=True,
-            validate_safety=True
+            use_sandbox=True
         )
 
         # Sandbox should have been used

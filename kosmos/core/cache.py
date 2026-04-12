@@ -11,7 +11,7 @@ import pickle
 import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Dict, Tuple, List
 import logging
@@ -241,7 +241,7 @@ class InMemoryCache(BaseCache):
 
     def _is_expired(self, expires_at: datetime) -> bool:
         """Check if a cached item has expired."""
-        return datetime.utcnow() > expires_at
+        return datetime.now(timezone.utc) > expires_at
 
     def get(self, key: str) -> Optional[Any]:
         """
@@ -287,7 +287,7 @@ class InMemoryCache(BaseCache):
         with self._lock:
             try:
                 # Calculate expiration
-                expires_at = datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)
 
                 # Remove oldest if at capacity
                 if len(self._cache) >= self.max_size and key not in self._cache:
@@ -352,7 +352,7 @@ class InMemoryCache(BaseCache):
             Number of entries removed
         """
         with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             expired_keys = [
                 key for key, (_, expires_at) in self._cache.items()
                 if expires_at < now
@@ -410,7 +410,7 @@ class DiskCache(BaseCache):
     def _is_expired(self, cached_at: datetime) -> bool:
         """Check if a cached item has expired."""
         expiry = cached_at + timedelta(seconds=self.ttl_seconds)
-        return datetime.utcnow() > expiry
+        return datetime.now(timezone.utc) > expiry
 
     def get(self, key: str) -> Optional[Any]:
         """
@@ -470,7 +470,7 @@ class DiskCache(BaseCache):
                 cached_data = {
                     'key': key,
                     'value': value,
-                    'cached_at': datetime.utcnow()
+                    'cached_at': datetime.now(timezone.utc)
                 }
 
                 with open(cache_path, 'wb') as f:

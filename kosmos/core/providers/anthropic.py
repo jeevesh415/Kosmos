@@ -31,6 +31,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from kosmos.config import _DEFAULT_CLAUDE_SONNET_MODEL, _DEFAULT_CLAUDE_HAIKU_MODEL
+from kosmos.core.pricing import get_model_cost
 
 class AnthropicProvider(LLMProvider):
     """
@@ -173,8 +174,8 @@ class AnthropicProvider(LLMProvider):
                 from kosmos.config import get_config
                 config = get_config()
                 log_llm = config.logging.log_llm_calls
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Config loading for LLM call logging failed: {e}")
 
             # Model selection logic
             selected_model = self.model
@@ -412,8 +413,8 @@ class AnthropicProvider(LLMProvider):
                         "[LLM] Anthropic async: model=%s, in=%d, out=%d, duration=%.2fs",
                         self.model, input_tokens, output_tokens, duration
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Anthropic call logging failed: {e}")
 
             return LLMResponse(
                 content=content,
@@ -575,17 +576,21 @@ class AnthropicProvider(LLMProvider):
             "mode": "cli" if self.is_cli_mode else "api",
         }
 
-        # Add pricing for API mode
+        # Add pricing for API mode using canonical pricing
         if not self.is_cli_mode:
-            if "haiku" in self.model.lower():
-                model_info["cost_per_million_input_tokens"] = 0.80
-                model_info["cost_per_million_output_tokens"] = 4.00
-            elif "sonnet" in self.model.lower():
-                model_info["cost_per_million_input_tokens"] = 3.00
-                model_info["cost_per_million_output_tokens"] = 15.00
-            elif "opus" in self.model.lower():
-                model_info["cost_per_million_input_tokens"] = 15.00
-                model_info["cost_per_million_output_tokens"] = 75.00
+            from kosmos.core.pricing import MODEL_PRICING, _FAMILY_PRICING
+            # Try exact model match first, then family-based
+            model_lower = self.model.lower()
+            if self.model in MODEL_PRICING:
+                input_price, output_price = MODEL_PRICING[self.model]
+            else:
+                input_price, output_price = (3.0, 15.0)  # default Sonnet
+                for family, pricing in _FAMILY_PRICING.items():
+                    if family in model_lower:
+                        input_price, output_price = pricing
+                        break
+            model_info["cost_per_million_input_tokens"] = input_price
+            model_info["cost_per_million_output_tokens"] = output_price
 
         return model_info
 
@@ -604,25 +609,7 @@ class AnthropicProvider(LLMProvider):
         if self.is_cli_mode:
             return 0.0
 
-        # Pricing per million tokens
-        if "haiku" in model.lower():
-            input_cost_per_m = 0.80
-            output_cost_per_m = 4.00
-        elif "sonnet" in model.lower():
-            input_cost_per_m = 3.00
-            output_cost_per_m = 15.00
-        elif "opus" in model.lower():
-            input_cost_per_m = 15.00
-            output_cost_per_m = 75.00
-        else:
-            # Default to Sonnet pricing
-            input_cost_per_m = 3.00
-            output_cost_per_m = 15.00
-
-        input_cost = (input_tokens / 1_000_000) * input_cost_per_m
-        output_cost = (output_tokens / 1_000_000) * output_cost_per_m
-
-        return input_cost + output_cost
+        return get_model_cost(model, input_tokens, output_tokens)
 
     def get_usage_stats(self) -> Dict[str, Any]:
         """

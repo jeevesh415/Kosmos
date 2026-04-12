@@ -1,0 +1,15 @@
+# requirements-lock.txt
+#
+# This file should be generated with:
+#   pip-compile pyproject.toml -o requirements-lock.txt --no-emit-index-url
+#
+# Lock file generation failed due to metadata resolution errors in transitive
+# dependencies (some scientific packages require system-level build tools).
+#
+# To generate this file successfully:
+#   1. Ensure build tools are installed: pip install setuptools wheel cmake
+#   2. Run: pip-compile pyproject.toml -o requirements-lock.txt --no-emit-index-url
+#   3. If specific packages fail, try: pip-compile --allow-unsafe pyproject.toml -o requirements-lock.txt
+#
+# Alternatively, generate from an environment where all packages are already installed:
+#   pip freeze > requirements-lock.txt

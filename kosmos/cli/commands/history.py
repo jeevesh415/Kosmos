@@ -5,7 +5,7 @@ Browse past research runs and view detailed history.
 """
 
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import typer
 from rich.prompt import Prompt
@@ -123,7 +123,7 @@ def get_research_runs(
                 query = query.filter(ResearchRun.state == status)
 
             if days:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
                 query = query.filter(ResearchRun.created_at >= cutoff_date)
 
             # Order by most recent and limit

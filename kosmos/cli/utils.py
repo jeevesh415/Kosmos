@@ -5,7 +5,7 @@ Provides common formatting, database helpers, and utility functions
 used across all CLI commands.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Any, Dict, List
 from contextlib import contextmanager
@@ -43,7 +43,7 @@ def format_timestamp(dt: datetime, relative: bool = True) -> str:
         Formatted timestamp string
     """
     if relative:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         diff = now - dt
 
         if diff.total_seconds() < 60:

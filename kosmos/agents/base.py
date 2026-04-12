@@ -11,7 +11,7 @@ Async Architecture (Issue #66 fix):
 
 from typing import Dict, Any, Optional, List, Callable, Awaitable, Union
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import logging
 import uuid
@@ -63,7 +63,7 @@ class AgentMessage(BaseModel):
     to_agent: str
     content: Dict[str, Any]
     correlation_id: Optional[str] = None  # For tracking request/response pairs
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -90,8 +90,8 @@ class AgentState(BaseModel):
     agent_type: str
     status: AgentStatus
     data: Dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BaseAgent:
@@ -129,8 +129,8 @@ class BaseAgent:
         self.config = config or {}
 
         self.status = AgentStatus.CREATED
-        self.created_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
         # Message handling - async queue for proper async processing
         self.message_queue: List[AgentMessage] = []  # Legacy sync queue (for compatibility)
@@ -193,6 +193,7 @@ class BaseAgent:
             return
 
         self.status = AgentStatus.PAUSED
+        self._on_pause()
         logger.info(f"Agent {self.agent_id} paused")
 
     def resume(self):
@@ -202,11 +203,12 @@ class BaseAgent:
             return
 
         self.status = AgentStatus.RUNNING
+        self._on_resume()
         logger.info(f"Agent {self.agent_id} resumed")
 
     def is_running(self) -> bool:
         """Check if agent is running."""
-        return self.status == AgentStatus.RUNNING
+        return self.status in (AgentStatus.RUNNING, AgentStatus.WORKING, AgentStatus.IDLE)
 
     def is_healthy(self) -> bool:
         """
@@ -443,7 +445,7 @@ class BaseAgent:
         Returns:
             AgentState: Current state
         """
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return AgentState(
             agent_id=self.agent_id,
             agent_type=self.agent_type,
@@ -472,7 +474,7 @@ class BaseAgent:
     def save_state_data(self, key: str, value: Any):
         """Save data to agent state."""
         self.state_data[key] = value
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def get_state_data(self, key: str, default: Any = None) -> Any:
         """Retrieve data from agent state."""
@@ -482,17 +484,19 @@ class BaseAgent:
     # EXECUTION
     # ========================================================================
 
-    def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, task: Union[Dict[str, Any], "AgentMessage"]) -> Union[Dict[str, Any], "AgentMessage"]:
         """
         Execute agent task.
 
         Subclasses should override this to implement main agent logic.
+        Accepts either a Dict task specification or an AgentMessage,
+        depending on the agent's communication pattern.
 
         Args:
-            task: Task specification
+            task: Task specification (Dict) or AgentMessage
 
         Returns:
-            dict: Task result
+            Task result as Dict or AgentMessage
         """
         raise NotImplementedError(f"execute() not implemented for {self.agent_type}")
 

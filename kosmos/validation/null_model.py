@@ -70,7 +70,15 @@ class NullModelResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        d = asdict(self)
+        for key, value in d.items():
+            if isinstance(value, np.bool_):
+                d[key] = bool(value)
+            elif isinstance(value, np.integer):
+                d[key] = int(value)
+            elif isinstance(value, np.floating):
+                d[key] = float(value)
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'NullModelResult':
@@ -236,7 +244,7 @@ class NullModelValidator:
             null_distribution=null_summary,
             permutation_p_value=p_value,
             null_percentile=percentile,
-            passes_null_test=p_value < self.alpha,
+            passes_null_test=bool(p_value < self.alpha),
             persists_in_noise=persists,
             n_permutations=len(null_dist),
             shuffle_method=shuffle_method,
@@ -490,7 +498,7 @@ class NullModelValidator:
         n_extreme = np.sum(np.abs(null_dist) >= np.abs(observed))
 
         # Add 1 to numerator and denominator (correction)
-        return (n_extreme + 1) / (len(null_dist) + 1)
+        return float((n_extreme + 1) / (len(null_dist) + 1))
 
     def _check_persistence_in_noise(
         self,
@@ -521,7 +529,7 @@ class NullModelValidator:
         q_low, q_high = np.percentile(null_dist, [lower_pct, upper_pct])
 
         # Check if observed falls within IQR (bad sign)
-        return q_low <= abs(observed) <= q_high
+        return bool(q_low <= abs(observed) <= q_high)
 
     def _calculate_percentile(
         self,

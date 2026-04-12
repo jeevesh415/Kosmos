@@ -5,6 +5,7 @@ Provides comprehensive metrics collection for monitoring and observability.
 """
 
 import logging
+import threading
 import time
 from typing import Dict, Any, Optional
 from contextlib import contextmanager
@@ -436,6 +437,7 @@ class MetricsCollector:
 
 # Global metrics collector instance
 _metrics_collector: Optional[MetricsCollector] = None
+_metrics_collector_lock = threading.Lock()
 
 
 def get_metrics_collector() -> MetricsCollector:
@@ -447,8 +449,17 @@ def get_metrics_collector() -> MetricsCollector:
     """
     global _metrics_collector
     if _metrics_collector is None:
-        _metrics_collector = MetricsCollector()
+        with _metrics_collector_lock:
+            if _metrics_collector is None:
+                _metrics_collector = MetricsCollector()
     return _metrics_collector
+
+
+def reset_metrics_collector():
+    """Reset the global metrics collector (for test isolation)."""
+    global _metrics_collector
+    with _metrics_collector_lock:
+        _metrics_collector = None
 
 
 def export_metrics() -> bytes:

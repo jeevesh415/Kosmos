@@ -9,7 +9,7 @@ import json
 import sys
 import platform
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Tuple
 import logging
 import re
@@ -91,8 +91,8 @@ class ResultCollector:
         metadata = self._create_metadata(
             protocol=protocol,
             execution_output=execution_output,
-            start_time=start_time or datetime.utcnow(),
-            end_time=end_time or datetime.utcnow()
+            start_time=start_time or datetime.now(timezone.utc),
+            end_time=end_time or datetime.now(timezone.utc)
         )
 
         # Extract raw data

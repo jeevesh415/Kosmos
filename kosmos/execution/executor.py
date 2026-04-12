@@ -9,6 +9,9 @@ import sys
 from kosmos.utils.compat import model_to_dict
 import io
 import traceback
+import signal
+import platform
+import concurrent.futures
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, Any, Optional
 import logging
@@ -32,6 +35,79 @@ try:
 except ImportError:
     R_EXECUTOR_AVAILABLE = False
     logger.debug("R executor not available")
+
+# Execution timeout (seconds) for unsandboxed exec (F-19)
+DEFAULT_EXECUTION_TIMEOUT = 300
+
+# Restricted builtins for unsandboxed execution (F-16)
+SAFE_BUILTINS = {
+    # Core types
+    'None': None, 'True': True, 'False': False,
+    'int': int, 'float': float, 'str': str, 'bool': bool,
+    'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
+    # Collections
+    'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
+    # Iteration
+    'range': range, 'enumerate': enumerate, 'zip': zip,
+    'map': map, 'filter': filter, 'reversed': reversed, 'sorted': sorted,
+    'iter': iter, 'next': next,
+    # Math
+    'abs': abs, 'round': round, 'min': min, 'max': max, 'sum': sum,
+    'pow': pow, 'divmod': divmod,
+    # String/repr
+    'repr': repr, 'format': format, 'chr': chr, 'ord': ord,
+    'ascii': ascii, 'bin': bin, 'hex': hex, 'oct': oct, 'hash': hash,
+    # Type introspection (safe subset)
+    'isinstance': isinstance, 'issubclass': issubclass,
+    'type': type, 'id': id, 'callable': callable,
+    'hasattr': hasattr, 'len': len,
+    # IO
+    'print': print,
+    # Object creation helpers
+    'property': property, 'staticmethod': staticmethod, 'classmethod': classmethod,
+    'super': super, 'object': object,
+    # Exceptions (needed for try/except)
+    'Exception': Exception, 'BaseException': BaseException,
+    'ValueError': ValueError, 'TypeError': TypeError, 'KeyError': KeyError,
+    'IndexError': IndexError, 'AttributeError': AttributeError,
+    'RuntimeError': RuntimeError, 'StopIteration': StopIteration,
+    'ZeroDivisionError': ZeroDivisionError, 'NameError': NameError,
+    'ImportError': ImportError, 'FileNotFoundError': FileNotFoundError,
+    'OSError': OSError, 'IOError': IOError, 'NotImplementedError': NotImplementedError,
+    'OverflowError': OverflowError, 'ArithmeticError': ArithmeticError,
+    'MemoryError': MemoryError, 'RecursionError': RecursionError,
+    'UnicodeError': UnicodeError, 'UnicodeDecodeError': UnicodeDecodeError,
+    'UnicodeEncodeError': UnicodeEncodeError,
+    # Misc safe builtins
+    'any': any, 'all': all, 'slice': slice, 'memoryview': memoryview,
+}
+
+# Modules allowed for restricted import (F-16)
+_ALLOWED_MODULES = {
+    'numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib', 'seaborn',
+    'statsmodels', 'math', 'statistics', 'collections', 'itertools',
+    'functools', 'operator', 'decimal', 'fractions', 'random',
+    'datetime', 'time', 'json', 'csv', 'io', 'pathlib', 'copy',
+    're', 'string', 'textwrap', 'hashlib', 'warnings', 'logging',
+    'typing', 'dataclasses', 'enum', 'abc',
+    'xarray', 'netCDF4', 'h5py', 'zarr', 'dask',
+}
+
+
+def _make_restricted_import(allowed: set = _ALLOWED_MODULES):
+    """Create a restricted __import__ that only allows scientific modules."""
+    _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+    def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+        top_level = name.split('.')[0]
+        if top_level not in allowed:
+            raise ImportError(
+                f"Import of '{name}' is not allowed in sandboxed execution. "
+                f"Allowed top-level modules: {sorted(allowed)}"
+            )
+        return _real_import(name, globals, locals, fromlist, level)
+
+    return _restricted_import
 
 
 class ExecutionResult:
@@ -100,11 +176,12 @@ class CodeExecutor:
         max_retries: int = 3,
         retry_delay: float = 1.0,
         allowed_globals: Optional[Dict[str, Any]] = None,
-        use_sandbox: bool = False,
+        use_sandbox: bool = True,
         sandbox_config: Optional[Dict[str, Any]] = None,
         enable_profiling: bool = False,
         profiling_mode: str = "light",
-        test_determinism: bool = False
+        test_determinism: bool = False,
+        execution_timeout: int = DEFAULT_EXECUTION_TIMEOUT
     ):
         """
         Initialize code executor.
@@ -113,11 +190,12 @@ class CodeExecutor:
             max_retries: Maximum number of retry attempts on error
             retry_delay: Delay between retries in seconds
             allowed_globals: Optional dictionary of allowed global variables
-            use_sandbox: If True, use Docker sandbox for execution
+            use_sandbox: If True, use Docker sandbox for execution (default: True for F-17)
             sandbox_config: Optional sandbox configuration (cpu_limit, memory_limit, timeout)
             enable_profiling: If True, profile code execution (default: False)
             profiling_mode: Profiling mode: light, standard, full (default: light)
             test_determinism: If True, run determinism check after successful execution (default: False)
+            execution_timeout: Timeout in seconds for unsandboxed execution (default: 300, F-19)
         """
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -127,18 +205,23 @@ class CodeExecutor:
         self.enable_profiling = enable_profiling
         self.profiling_mode = profiling_mode
         self.test_determinism = test_determinism
+        self.execution_timeout = execution_timeout
 
         # Initialize retry strategy for self-correcting execution (Issue #54)
         self.retry_strategy = RetryStrategy(max_retries=max_retries, base_delay=retry_delay)
 
-        # Initialize sandbox if requested
+        # Initialize sandbox if requested (F-17: graceful fallback)
         self.sandbox = None
         if self.use_sandbox:
             if not SANDBOX_AVAILABLE:
-                raise RuntimeError("Docker sandbox requested but not available. Install docker package.")
-
-            self.sandbox = DockerSandbox(**self.sandbox_config)
-            logger.info("Docker sandbox initialized for code execution")
+                logger.warning(
+                    "Docker sandbox requested but not available. "
+                    "Falling back to restricted builtins execution."
+                )
+                self.use_sandbox = False
+            else:
+                self.sandbox = DockerSandbox(**self.sandbox_config)
+                logger.info("Docker sandbox initialized for code execution")
 
         # Initialize R executor for R language support (Issue #69)
         self.r_executor = None
@@ -419,8 +502,8 @@ class CodeExecutor:
                 profiler._start_profiling()
 
             with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                # Execute code
-                exec(code, exec_globals, exec_locals)
+                # Execute code with timeout (F-19)
+                self._exec_with_timeout(code, exec_globals, exec_locals)
 
             # Stop profiling if enabled
             if profiler:
@@ -449,8 +532,8 @@ class CodeExecutor:
                 try:
                     profiler._stop_profiling()
                     profile_result = profiler.get_result()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Profiler stop/result retrieval failed: {e}")
 
             execution_time = time.time() - start_time
 
@@ -504,14 +587,47 @@ class CodeExecutor:
         )
 
     def _prepare_globals(self) -> Dict[str, Any]:
-        """Prepare global namespace for code execution."""
-        # Start with allowed globals
+        """Prepare global namespace with restricted builtins (F-16)."""
         exec_globals = self.allowed_globals.copy()
 
-        # Add standard builtins
-        exec_globals['__builtins__'] = __builtins__
+        # Use restricted builtins instead of full Python builtins
+        restricted = dict(SAFE_BUILTINS)
+        restricted['__import__'] = _make_restricted_import()
+        exec_globals['__builtins__'] = restricted
 
         return exec_globals
+
+    def _exec_with_timeout(
+        self,
+        code: str,
+        exec_globals: Dict[str, Any],
+        exec_locals: Dict[str, Any]
+    ) -> None:
+        """Execute code with timeout protection (F-19)."""
+        if platform.system() != 'Windows' and hasattr(signal, 'SIGALRM'):
+            # Unix: use signal.alarm for same-thread timeout
+            old_handler = signal.getsignal(signal.SIGALRM)
+            def _timeout_handler(signum, frame):
+                raise TimeoutError(
+                    f"Code execution timed out after {self.execution_timeout}s"
+                )
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(self.execution_timeout)
+            try:
+                exec(code, exec_globals, exec_locals)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+        else:
+            # Windows/other: use ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(exec, code, exec_globals, exec_locals)
+                try:
+                    future.result(timeout=self.execution_timeout)
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError(
+                        f"Code execution timed out after {self.execution_timeout}s"
+                    )
 
     def execute_with_data(
         self,
@@ -544,95 +660,8 @@ class CodeExecutor:
         return self.execute(augmented_code, local_vars, retry_on_error)
 
 
-class CodeValidator:
-    """
-    Validates generated code for safety and correctness.
-
-    Checks for:
-    - Syntax errors
-    - Dangerous imports
-    - Dangerous operations
-    """
-
-    # Dangerous modules that should not be imported
-    DANGEROUS_MODULES = [
-        'os', 'subprocess', 'sys', 'shutil', 'importlib',
-        'socket', 'urllib', 'requests', 'http',
-        '__import__', 'eval', 'exec', 'compile'
-    ]
-
-    # Dangerous functions/operations
-    DANGEROUS_PATTERNS = [
-        'open(',  # File operations (except specific allowed cases)
-        'eval(',
-        'exec(',
-        'compile(',
-        '__import__',
-        'globals(',
-        'locals(',
-        'vars(',
-    ]
-
-    @staticmethod
-    def validate(code: str, allow_file_read: bool = True) -> Dict[str, Any]:
-        """
-        Validate code for safety.
-
-        Args:
-            code: Python code to validate
-            allow_file_read: If True, allow read-only file operations
-
-        Returns:
-            Dictionary with:
-                - valid: Boolean
-                - errors: List of error messages
-                - warnings: List of warning messages
-        """
-        errors = []
-        warnings = []
-
-        # Check syntax
-        try:
-            import ast
-            ast.parse(code)
-        except SyntaxError as e:
-            errors.append(f"Syntax error: {e}")
-            return {'valid': False, 'errors': errors, 'warnings': warnings}
-
-        # Check for dangerous imports
-        for module in CodeValidator.DANGEROUS_MODULES:
-            if f"import {module}" in code or f"from {module}" in code:
-                errors.append(f"Dangerous import detected: {module}")
-
-        # Check for dangerous patterns
-        for pattern in CodeValidator.DANGEROUS_PATTERNS:
-            if pattern in code:
-                # Special case: allow open() for reading if permitted
-                if pattern == 'open(' and allow_file_read:
-                    # Check if it's read-only (contains "'r'" or no mode specified)
-                    if "'w'" in code or "'a'" in code or "'x'" in code or "mode='w'" in code:
-                        errors.append(f"Dangerous operation detected: write mode file operations")
-                    else:
-                        warnings.append(f"File read operation detected: {pattern}")
-                else:
-                    errors.append(f"Dangerous operation detected: {pattern}")
-
-        # Check for network operations
-        network_keywords = ['socket', 'http', 'urllib', 'requests', 'api']
-        for keyword in network_keywords:
-            if keyword in code.lower():
-                warnings.append(f"Potential network operation detected: {keyword}")
-
-        is_valid = len(errors) == 0
-
-        logger.info(f"Code validation: {'PASSED' if is_valid else 'FAILED'}, "
-                   f"{len(errors)} errors, {len(warnings)} warnings")
-
-        return {
-            'valid': is_valid,
-            'errors': errors,
-            'warnings': warnings
-        }
+# Re-export CodeValidator from canonical safety module (F-22: removed duplicate)
+from kosmos.safety.code_validator import CodeValidator  # noqa: F811,F401
 
 
 class RetryStrategy:
@@ -989,34 +1018,56 @@ def execute_protocol_code(
     code: str,
     data_path: Optional[str] = None,
     max_retries: int = 2,
-    validate_safety: bool = True,
-    use_sandbox: bool = False,
+    use_sandbox: bool = True,
     sandbox_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Convenience function to execute protocol code with full pipeline.
 
+    Always validates code safety before execution (F-21: removed validate_safety bypass).
+
     Args:
         code: Generated code to execute
         data_path: Optional path to data file
         max_retries: Maximum retry attempts
-        validate_safety: If True, validate code safety first
-        use_sandbox: If True, execute in Docker sandbox
+        use_sandbox: If True, execute in Docker sandbox (default: True)
         sandbox_config: Optional sandbox configuration
 
     Returns:
         Dictionary with execution results
     """
-    # Validate code if requested
-    if validate_safety:
-        validation = CodeValidator.validate(code, allow_file_read=True)
-        if not validation['valid']:
+    # Check SafetyGuardrails emergency stop before execution
+    try:
+        from kosmos.safety.guardrails import SafetyGuardrails
+        guardrails = SafetyGuardrails()
+        guardrails.sync_from_flag_file()
+        if guardrails.is_emergency_stop_active():
             return {
                 'success': False,
-                'error': 'Code validation failed',
-                'validation_errors': validation['errors'],
-                'validation_warnings': validation['warnings']
+                'error': 'Emergency stop is active',
+                'validation_errors': [f"Emergency stop: {guardrails.emergency_stop.reason}"],
+                'validation_warnings': []
             }
+        # Use guardrails-enforced resource limits for sandbox config
+        if use_sandbox and sandbox_config is None:
+            enforced_limits = guardrails.enforce_resource_limits()
+            sandbox_config = {
+                'memory_limit_mb': enforced_limits.max_memory_mb,
+                'timeout_seconds': enforced_limits.max_execution_time_seconds,
+            }
+    except ImportError:
+        logger.debug("SafetyGuardrails not available, proceeding without guardrails")
+
+    # Always validate code safety (F-21)
+    validator = CodeValidator(allow_file_read=True)
+    report = validator.validate(code)
+    if not report.passed:
+        return {
+            'success': False,
+            'error': 'Code validation failed',
+            'validation_errors': [v.message for v in report.violations],
+            'validation_warnings': [str(w) for w in report.warnings]
+        }
 
     # Execute code
     executor = CodeExecutor(
@@ -1032,7 +1083,6 @@ def execute_protocol_code(
 
     # Convert to dict and add validation info
     result_dict = result.to_dict()
-    if validate_safety:
-        result_dict['validation_warnings'] = validation.get('warnings', [])
+    result_dict['validation_warnings'] = [str(w) for w in report.warnings]
 
     return result_dict

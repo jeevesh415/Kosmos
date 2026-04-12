@@ -145,7 +145,7 @@ async def test_validation_async():
         "methods": "Statistical analysis"
     }
 
-    score = await validator.evaluate_finding(finding)
+    score = validator.evaluate_finding(finding)
     assert hasattr(score, 'overall_score'), "ScholarEval scoring failed"
     assert 0 <= score.overall_score <= 10, "Score out of range"
     print("  [OK] ScholarEvalValidator mock scoring")

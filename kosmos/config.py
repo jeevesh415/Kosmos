@@ -640,7 +640,7 @@ class SafetyConfig(BaseSettings):
     )
 
     # Human oversight
-    approval_mode: str = Field(
+    approval_mode: Literal["blocking", "queue", "automatic", "disabled"] = Field(
         default="blocking",
         description="Approval workflow mode (blocking/queue/automatic/disabled)",
         alias="APPROVAL_MODE"
@@ -652,12 +652,12 @@ class SafetyConfig(BaseSettings):
     )
 
     # Notifications
-    notification_channel: str = Field(
+    notification_channel: Literal["console", "log", "both"] = Field(
         default="both",
         description="Notification channel (console/log/both)",
         alias="NOTIFICATION_CHANNEL"
     )
-    notification_min_level: str = Field(
+    notification_min_level: Literal["debug", "info", "warning", "error", "critical"] = Field(
         default="info",
         description="Minimum notification level (debug/info/warning/error/critical)",
         alias="NOTIFICATION_MIN_LEVEL"

@@ -88,7 +88,7 @@ class HypothesisGeneratorAgent(BaseAgent):
 
         logger.info(f"Initialized HypothesisGeneratorAgent {self.agent_id}")
 
-    def execute(self, message: AgentMessage) -> AgentMessage:
+    def execute(self, message):
         """
         Execute agent task from message.
 
